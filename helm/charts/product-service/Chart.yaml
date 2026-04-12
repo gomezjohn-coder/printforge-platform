@@ -1,0 +1,13 @@
+apiVersion: v2
+name: product-service
+description: PrintForge Product Service — generates SKUs from artist designs, serves the product catalog, and exposes listings and categories to the storefront
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: PrintForge Platform Team
+    email: platform@printforge.io
+dependencies:
+  - name: common
+    version: "0.1.0"
+    repository: "file://../common"

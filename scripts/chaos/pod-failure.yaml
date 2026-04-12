@@ -1,0 +1,87 @@
+# PrintForge — Chaos Mesh: Pod Failure Experiment
+#
+# Randomly kills pods in the printforge namespace to validate:
+#   - Pod Disruption Budget enforcement (PDB minAvailable=2)
+#   - Kubernetes self-healing (replacement pod scheduling)
+#   - Service continuity during pod restarts
+#   - Readiness probe behavior and traffic draining
+#
+# Prerequisites:
+#   - Chaos Mesh installed: https://chaos-mesh.org/docs/quick-start/
+#   - kubectl access to the printforge namespace
+#
+# Usage:
+#   kubectl apply -f scripts/chaos/pod-failure.yaml
+#   kubectl get podchaos -n printforge
+#   kubectl delete -f scripts/chaos/pod-failure.yaml  # stop experiment
+#
+# Safety:
+#   - Only targets pods in the printforge namespace
+#   - Kills one pod at a time (value: "1")
+#   - Runs for 5 minutes with 2-minute intervals between kills
+#   - Excludes init containers and sidecar injectors
+
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: printforge-pod-failure
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: pod-failure
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Randomly kill one pod at a time in the printforge namespace to validate
+      self-healing, PDB enforcement, and service continuity.
+spec:
+  action: pod-kill
+  mode: one
+  # Target: all application pods in the printforge namespace
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app.kubernetes.io/part-of": "printforge"
+    # Exclude infrastructure pods
+    expressionSelectors:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - controller
+          - webhook
+          - loadtester
+  # Grace period before force-killing (allows graceful shutdown)
+  gracePeriod: 30
+  # Schedule: kill a pod every 2 minutes
+  scheduler:
+    cron: "*/2 * * * *"
+  # Duration: experiment runs for 5 minutes total
+  duration: "5m"
+---
+# Continuous pod failure for extended resilience testing
+# Use this for longer soak-style chaos experiments
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: printforge-pod-failure-extended
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: pod-failure-extended
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Extended pod failure test. Kills one random pod every 5 minutes
+      for 30 minutes. Pair with soak test for comprehensive resilience
+      validation.
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app.kubernetes.io/part-of": "printforge"
+  gracePeriod: 30
+  scheduler:
+    cron: "*/5 * * * *"
+  duration: "30m"

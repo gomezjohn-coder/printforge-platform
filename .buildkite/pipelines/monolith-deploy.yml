@@ -1,0 +1,70 @@
+# ============================================================
+# Monolith (ECS) Deployment Pipeline
+# ============================================================
+# Different from K8s deploys — uses ECS service update with
+# deployment circuit breaker for automatic rollback.
+# ============================================================
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECS_CLUSTER: printforge-production-monolith
+  ECS_SERVICE: monolith-service
+
+steps:
+  - label: ":docker: Build Monolith"
+    command: |
+      IMAGE_TAG="${BUILDKITE_COMMIT:0:8}"
+      ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/printforge/monolith-service"
+
+      docker build -t "${ECR_URI}:${IMAGE_TAG}" ./services/monolith-service
+
+      aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin "${ECR_URI%%/*}"
+      docker push "${ECR_URI}:${IMAGE_TAG}"
+
+      buildkite-agent meta-data set "monolith-image-tag" "${IMAGE_TAG}"
+
+  - label: ":aws: Register New Task Definition"
+    command: |
+      IMAGE_TAG=$(buildkite-agent meta-data get "monolith-image-tag")
+      ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/printforge/monolith-service:${IMAGE_TAG}"
+
+      # Get current task definition and update image
+      TASK_DEF=$(aws ecs describe-task-definition --task-definition printforge-monolith-service --query taskDefinition)
+      NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_URI" \
+        '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+
+      # Register new revision
+      NEW_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --query taskDefinition.taskDefinitionArn --output text)
+      buildkite-agent meta-data set "task-definition-arn" "${NEW_ARN}"
+      echo "Registered: ${NEW_ARN}"
+    depends_on: "Build Monolith"
+
+  - block: ":raised_hand: Deploy Monolith to Production?"
+    prompt: "Deploy new monolith version with ECS rolling update + circuit breaker?"
+
+  - label: ":rocket: Update ECS Service"
+    command: |
+      TASK_ARN=$(buildkite-agent meta-data get "task-definition-arn")
+
+      echo "--- Updating ECS service"
+      aws ecs update-service \
+        --cluster ${ECS_CLUSTER} \
+        --service ${ECS_SERVICE} \
+        --task-definition "${TASK_ARN}" \
+        --force-new-deployment
+
+      echo "--- Waiting for service stability (circuit breaker enabled)"
+      aws ecs wait services-stable \
+        --cluster ${ECS_CLUSTER} \
+        --services ${ECS_SERVICE}
+
+      echo "--- :white_check_mark: ECS service stable"
+    depends_on: "Deploy Monolith to Production?"
+    timeout_in_minutes: 15
+
+  - label: ":white_check_mark: Smoke Test Monolith"
+    command: |
+      curl -sf https://admin.printforge.com/healthz || exit 1
+      echo "Monolith deployment successful"
+      .buildkite/scripts/notify-slack.sh --event success --service monolith-service
+    depends_on: "Update ECS Service"

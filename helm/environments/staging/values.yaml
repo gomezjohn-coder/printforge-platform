@@ -1,0 +1,76 @@
+# =============================================================================
+# Staging Environment
+# =============================================================================
+# Usage: helm upgrade --install <chart> ./helm/charts/<chart> \
+#          -f ./helm/environments/staging/values.yaml
+# =============================================================================
+
+replicaCount: 2
+
+image:
+  pullPolicy: Always
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "250m"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      maxPods: 1
+      maxPercent: 50
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      maxPods: 1
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: staging.printforge.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: printforge-staging-tls
+      hosts:
+        - staging.printforge.io
+
+env:
+  - name: NODE_ENV
+    value: staging
+  - name: LOG_LEVEL
+    value: debug
+  - name: LOG_FORMAT
+    value: json
+
+# -- Canary enabled in staging for testing progressive delivery
+canary:
+  enabled: true
+  analysis:
+    interval: 1m
+    threshold: 3
+    stepWeight: 20
+    maxWeight: 60
+
+terminationGracePeriodSeconds: 30

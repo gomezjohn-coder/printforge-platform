@@ -1,0 +1,86 @@
+# PrintForge Monitor: API P99 Latency
+# Priority: P2 (ticket + Slack notification)
+# SLO: SLO-002 API Latency P99 (<500ms)
+#
+# Fires when P99 response time exceeds 2 seconds over a 5-minute window.
+# The SLO threshold is 500ms; this monitor catches severe degradations
+# that indicate a systemic problem (e.g., database connection pool
+# exhaustion, missing index, upstream timeout).
+
+name: "[P2] PrintForge Checkout — P99 Latency > 2s"
+type: query alert
+priority: 2
+
+query: >
+  percentile(last_5m):
+    http_request_duration_seconds{
+      service:order-service,
+      !path:/healthz,
+      !path:/ready,
+      !path:/metrics
+    }
+  by {path}
+  p:99 > 2
+
+message: |
+  {{#is_alert}}
+  **P2 ALERT: API P99 latency is {{value}}s on path {{path.name}} (threshold: 2s)**
+
+  The order-service is experiencing severe latency degradation. The SLO target
+  is P99 < 500ms; current values are well above the alert threshold of 2s.
+
+  **Impact:** Users experience slow page loads, timeouts on order submission,
+  and degraded search experience.
+
+  **Investigation steps:**
+  1. Identify slow endpoints: check the dashboard for per-path breakdown
+  2. Check database query performance: `printforge logs order-service | grep "slow_query"`
+  3. Review connection pool metrics: PostgreSQL and Redis pool utilization
+  4. Check for recent deployments or config changes
+  5. Verify HPA status: `kubectl get hpa -n printforge`
+
+  **Common causes:**
+  - Database: missing index, lock contention, connection pool exhaustion
+  - Redis: cache miss storm, eviction pressure
+  - Upstream: artist-service or search-service degradation
+  - Infrastructure: node resource pressure, noisy neighbor
+
+  **Runbook:** https://runbooks.printforge.io/api/latency-degradation
+  **Dashboard:** https://app.datadoghq.com/dashboard/printforge-service-overview
+  {{/is_alert}}
+
+  {{#is_warning}}
+  **Warning: API P99 latency is {{value}}s on path {{path.name}} (warning: 1s)**
+
+  Latency is elevated. Review slow queries and resource utilization.
+  {{/is_warning}}
+
+  {{#is_recovery}}
+  **Recovered: API P99 latency on {{path.name}} is back to {{value}}s**
+  {{/is_recovery}}
+
+  @slack-printforge-alerts
+
+tags:
+  - service:order-service
+  - team:platform
+  - env:production
+  - slo:api-latency-p99
+  - severity:p2
+
+options:
+  thresholds:
+    critical: 2
+    warning: 1
+  notify_no_data: false
+  require_full_window: false
+  include_tags: true
+  evaluation_delay: 60
+  new_group_delay: 120
+
+  renotify_interval: 30
+  renotify_occurrences: 3
+  renotify_statuses:
+    - alert
+
+  min_failure_duration: 300

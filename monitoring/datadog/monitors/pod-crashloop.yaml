@@ -1,0 +1,86 @@
+# PrintForge Monitor: Pod CrashLoopBackOff Detection
+# Priority: P1 (page immediately)
+#
+# Detects when any pod in the printforge namespace enters CrashLoopBackOff.
+# This typically indicates an application crash on startup — misconfiguration,
+# missing secrets, failed migrations, or OOM kills.
+
+name: "[P1] PrintForge — Pod CrashLoopBackOff Detected"
+type: query alert
+priority: 1
+
+query: >
+  max(last_5m):
+    kubernetes_state.container.status_report.count.waiting{
+      kube_namespace:printforge,
+      reason:crashloopbackoff
+    }
+  by {kube_deployment,kube_container_name}
+  > 0
+
+message: |
+  {{#is_alert}}
+  **P1 ALERT: Pod in CrashLoopBackOff — {{kube_deployment.name}} / {{kube_container_name.name}}**
+
+  A container in the printforge namespace is repeatedly crashing and restarting.
+  Kubernetes will apply exponential backoff, but the pod will not become healthy
+  until the root cause is resolved.
+
+  **Affected deployment:** `{{kube_deployment.name}}`
+  **Container:** `{{kube_container_name.name}}`
+
+  **Immediate actions:**
+  1. Check pod events:
+     ```
+     kubectl describe pod -n printforge -l app={{kube_deployment.name}} | tail -30
+     ```
+  2. Check container logs (previous crash):
+     ```
+     kubectl logs -n printforge -l app={{kube_deployment.name}} -c {{kube_container_name.name}} --previous
+     ```
+  3. Check if this correlates with a recent deployment:
+     ```
+     printforge canary status
+     kubectl rollout history deployment/{{kube_deployment.name}} -n printforge
+     ```
+  4. If caused by a bad deploy, roll back:
+     ```
+     printforge rollback {{kube_deployment.name}}
+     ```
+
+  **Common causes:**
+  - Missing or incorrect environment variables / secrets
+  - Database migration failure (check init container logs)
+  - OOM kill (check `kubectl describe pod` for OOMKilled reason)
+  - Image pull failure (wrong tag, registry auth)
+  - Port conflict or binding failure
+
+  **Runbook:** https://runbooks.printforge.io/k8s/crashloopbackoff
+  {{/is_alert}}
+
+  {{#is_recovery}}
+  **Recovered: {{kube_deployment.name}} / {{kube_container_name.name}} is no longer in CrashLoopBackOff**
+  {{/is_recovery}}
+
+  @slack-printforge-alerts
+  @pagerduty-printforge-platform
+
+tags:
+  - team:platform
+  - env:production
+  - kube_namespace:printforge
+  - severity:p1
+
+options:
+  thresholds:
+    critical: 0
+  notify_no_data: false
+  require_full_window: false
+  include_tags: true
+  evaluation_delay: 30
+  new_group_delay: 60
+
+  renotify_interval: 10
+  renotify_occurrences: 6
+  renotify_statuses:
+    - alert

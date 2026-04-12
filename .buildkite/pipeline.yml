@@ -1,0 +1,68 @@
+# ============================================================
+# Main Buildkite Pipeline — Routes to service-specific deploys
+# ============================================================
+# This entry pipeline runs after CI (GitHub Actions) produces
+# a signed image in ECR. It detects which services changed
+# and triggers the appropriate deploy pipeline:
+#   - Microservices on EKS → canary deploy via Flagger
+#   - Monolith on ECS      → rolling deploy with ECS circuit breaker
+#   - Terraform changes    → gated plan + apply
+# ============================================================
+steps:
+  - label: ":pipeline: Detect Changed Services"
+    command: |
+      CHANGED_SERVICES=""
+      if git diff --name-only HEAD~1 | grep -q "services/product-service/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES product-service"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "services/order-service/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES order-service"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "services/marketplace-web/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES marketplace-web"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "services/artist-service/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES artist-service"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "services/search-service/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES search-service"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "services/monolith-service/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES monolith-service"
+      fi
+      if git diff --name-only HEAD~1 | grep -q "terraform/"; then
+        CHANGED_SERVICES="$CHANGED_SERVICES infrastructure"
+      fi
+      buildkite-agent meta-data set "changed-services" "$CHANGED_SERVICES"
+      echo "Changed services: $CHANGED_SERVICES"
+
+  - wait
+
+  - label: ":rocket: Deploy Microservices (EKS)"
+    trigger: "printforge-deploy-production"
+    build:
+      message: "Deploy ${BUILDKITE_MESSAGE}"
+      branch: "${BUILDKITE_BRANCH}"
+      commit: "${BUILDKITE_COMMIT}"
+    if: |
+      build.branch == "main" &&
+      build.meta_data("changed-services") =~ /(product-service|order-service|marketplace-web|artist-service|search-service)/
+
+  - label: ":whale: Deploy Monolith (ECS)"
+    trigger: "printforge-monolith-deploy"
+    build:
+      message: "Deploy monolith ${BUILDKITE_MESSAGE}"
+      branch: "${BUILDKITE_BRANCH}"
+      commit: "${BUILDKITE_COMMIT}"
+    if: |
+      build.branch == "main" &&
+      build.meta_data("changed-services") =~ /monolith-service/
+
+  - label: ":terraform: Apply Infrastructure"
+    trigger: "printforge-infrastructure"
+    build:
+      message: "Infra: ${BUILDKITE_MESSAGE}"
+      branch: "${BUILDKITE_BRANCH}"
+    if: |
+      build.branch == "main" &&
+      build.meta_data("changed-services") =~ /infrastructure/

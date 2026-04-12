@@ -1,0 +1,507 @@
+{
+  "title": "PrintForge — Service Overview (Golden Signals)",
+  "description": "Golden signals (latency, traffic, errors, saturation) for all PrintForge services. Use this dashboard as the first stop during incident triage.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "default": "production",
+      "available_values": ["production", "staging"]
+    },
+    {
+      "name": "service",
+      "prefix": "service",
+      "default": "*",
+      "available_values": ["product-service", "order-service", "marketplace-web", "search-service", "artist-service", "monolith-service"]
+    }
+  ],
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "title": "Service Health Summary",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 100,
+            "definition": {
+              "title": "API Availability SLO",
+              "type": "slo",
+              "slo_id": "api-availability",
+              "time_windows": ["30d", "7d"],
+              "show_error_budget": true,
+              "view_mode": "both"
+            }
+          },
+          {
+            "id": 101,
+            "definition": {
+              "title": "API Latency SLO",
+              "type": "slo",
+              "slo_id": "api-latency-p99",
+              "time_windows": ["30d", "7d"],
+              "show_error_budget": true,
+              "view_mode": "both"
+            }
+          },
+          {
+            "id": 102,
+            "definition": {
+              "title": "Order Success SLO",
+              "type": "slo",
+              "slo_id": "order-success-rate",
+              "time_windows": ["30d", "7d"],
+              "show_error_budget": true,
+              "view_mode": "both"
+            }
+          },
+          {
+            "id": 103,
+            "definition": {
+              "title": "Active Monitors",
+              "type": "manage_status",
+              "display_format": "countsAndList",
+              "color_preference": "text",
+              "hide_zero_counts": false,
+              "query": "tag:(team:platform env:$env.value)",
+              "sort": "status,asc",
+              "count": 50,
+              "start": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "title": "LATENCY",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 200,
+            "definition": {
+              "title": "P50 / P95 / P99 Latency — All Services",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    { "formula": "query1", "alias": "P50" },
+                    { "formula": "query2", "alias": "P95" },
+                    { "formula": "query3", "alias": "P99" }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "p50:http_request_duration_seconds{env:$env.value,service:$service.value,!path:/healthz,!path:/ready}"
+                    },
+                    {
+                      "name": "query2",
+                      "data_source": "metrics",
+                      "query": "p95:http_request_duration_seconds{env:$env.value,service:$service.value,!path:/healthz,!path:/ready}"
+                    },
+                    {
+                      "name": "query3",
+                      "data_source": "metrics",
+                      "query": "p99:http_request_duration_seconds{env:$env.value,service:$service.value,!path:/healthz,!path:/ready}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "style": {
+                    "palette": "dog_classic"
+                  },
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": {
+                "label": "seconds",
+                "include_zero": true
+              },
+              "markers": [
+                {
+                  "value": "y = 0.5",
+                  "display_type": "error dashed",
+                  "label": "SLO: 500ms"
+                }
+              ]
+            }
+          },
+          {
+            "id": 201,
+            "definition": {
+              "title": "P99 Latency by Service",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "p99:http_request_duration_seconds{env:$env.value,!path:/healthz,!path:/ready} by {service}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "seconds" }
+            }
+          },
+          {
+            "id": 202,
+            "definition": {
+              "title": "P99 Latency by Endpoint (Top 10)",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "p99:http_request_duration_seconds{env:$env.value,service:$service.value,!path:/healthz,!path:/ready} by {path}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "title": "TRAFFIC",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 300,
+            "definition": {
+              "title": "Request Rate (req/s) — All Services",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value}.as_rate() by {service}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "cool" }
+                }
+              ],
+              "yaxis": { "label": "req/s" }
+            }
+          },
+          {
+            "id": 301,
+            "definition": {
+              "title": "Request Rate by Status Code",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value}.as_rate() by {status_code}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "style": { "palette": "semantic" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 302,
+            "definition": {
+              "title": "Request Volume by Endpoint (Top 10)",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value,!path:/healthz,!path:/ready}.as_count() by {path}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "title": "ERRORS",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 400,
+            "definition": {
+              "title": "5xx Error Rate (%) — All Services",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "formulas": [
+                    {
+                      "formula": "(query1 / query2) * 100",
+                      "alias": "Error Rate %"
+                    }
+                  ],
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value,status_code:5*}.as_count()"
+                    },
+                    {
+                      "name": "query2",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "style": { "palette": "warm" }
+                }
+              ],
+              "markers": [
+                {
+                  "value": "y = 1",
+                  "display_type": "error dashed",
+                  "label": "Alert: 1%"
+                }
+              ]
+            }
+          },
+          {
+            "id": 401,
+            "definition": {
+              "title": "Error Count by Service",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,status_code:5*}.as_count() by {service}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "warm" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 402,
+            "definition": {
+              "title": "Top Error Endpoints",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:http_requests_total{env:$env.value,service:$service.value,status_code:5*}.as_count() by {path,status_code}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": 403,
+            "definition": {
+              "title": "Application Error Logs",
+              "type": "log_stream",
+              "query": "service:($service.value) status:error env:$env.value",
+              "columns": ["timestamp", "service", "message"],
+              "message_display": "inline",
+              "sort": { "column": "timestamp", "order": "desc" },
+              "indexes": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "title": "SATURATION",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 500,
+            "definition": {
+              "title": "CPU Utilization by Service",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.cpu.usage.total{kube_namespace:printforge,env:$env.value} by {kube_deployment} / avg:kubernetes.cpu.limits{kube_namespace:printforge,env:$env.value} by {kube_deployment} * 100"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "%", "max": "100" },
+              "markers": [
+                {
+                  "value": "y = 80",
+                  "display_type": "warning dashed",
+                  "label": "HPA target: 70%"
+                }
+              ]
+            }
+          },
+          {
+            "id": 501,
+            "definition": {
+              "title": "Memory Utilization by Service",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.memory.usage{kube_namespace:printforge,env:$env.value} by {kube_deployment} / avg:kubernetes.memory.limits{kube_namespace:printforge,env:$env.value} by {kube_deployment} * 100"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "%", "max": "100" },
+              "markers": [
+                {
+                  "value": "y = 80",
+                  "display_type": "warning dashed",
+                  "label": "HPA target: 80%"
+                }
+              ]
+            }
+          },
+          {
+            "id": 502,
+            "definition": {
+              "title": "Active DB Connections",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:postgresql.connections{env:$env.value}"
+                    },
+                    {
+                      "name": "query2",
+                      "data_source": "metrics",
+                      "query": "avg:postgresql.max_connections{env:$env.value}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "query1", "alias": "Active" },
+                    { "formula": "query2", "alias": "Max" }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "id": 503,
+            "definition": {
+              "title": "Redis Memory Usage",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:redis.mem.used{env:$env.value}"
+                    },
+                    {
+                      "name": "query2",
+                      "data_source": "metrics",
+                      "query": "avg:redis.mem.maxmemory{env:$env.value}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "query1", "alias": "Used" },
+                    { "formula": "query2", "alias": "Max" }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "bytes" }
+            }
+          },
+          {
+            "id": 504,
+            "definition": {
+              "title": "Pod Replica Count vs HPA Target",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes.pods.running{kube_namespace:printforge,env:$env.value} by {kube_deployment}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "notify_list": [],
+  "tags": ["team:platform", "project:printforge"]
+}

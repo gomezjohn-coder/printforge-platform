@@ -1,0 +1,21 @@
+steps:
+  - label: ":helm: Deploy to staging"
+    command: |
+      helm upgrade --install order-service ./helm/order-service \
+        --namespace staging \
+        --set image.tag=$BUILDKITE_COMMIT \
+        --set configmap.ENV=staging \
+        --wait --timeout 5m
+    env:
+      KUBECONFIG: "/root/.kube/config"
+
+  - block: ":rocket: Promote to production?"
+    prompt: "Deploy $BUILDKITE_COMMIT to production?"
+
+  - label: ":helm: Deploy to production"
+    command: |
+      helm upgrade --install order-service ./helm/order-service \
+        --namespace production \
+        --set image.tag=$BUILDKITE_COMMIT \
+        --set configmap.ENV=production \
+        --wait --timeout 5m

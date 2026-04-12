@@ -1,0 +1,72 @@
+<%- include('layout', { title: title, body: `
+
+<!-- Revenue Cards -->
+<div class="grid">
+    <div class="card">
+        <h3>Revenue Today</h3>
+        <div class="value">$${stats.revenue.today.toLocaleString()}</div>
+        <div class="sub">Updated just now</div>
+    </div>
+    <div class="card">
+        <h3>Revenue This Week</h3>
+        <div class="value">$${stats.revenue.this_week.toLocaleString()}</div>
+    </div>
+    <div class="card">
+        <h3>Revenue This Month</h3>
+        <div class="value">$${stats.revenue.this_month.toLocaleString()}</div>
+        <div class="sub">Last month: $${stats.revenue.last_month.toLocaleString()}</div>
+    </div>
+</div>
+
+<!-- Product & Artist Stats -->
+<div class="grid">
+    <div class="card">
+        <h3>Total Products</h3>
+        <div class="value">${stats.products.total}</div>
+        <div class="sub">${stats.products.active} active &middot; ${stats.products.draft} draft &middot; ${stats.products.archived} archived</div>
+    </div>
+    <div class="card">
+        <h3>Artists</h3>
+        <div class="value">${stats.artists.total}</div>
+        <div class="sub">${stats.artists.verified} verified &middot; ${stats.artists.pending_verification} pending</div>
+    </div>
+    <div class="card">
+        <h3>Orders Pending</h3>
+        <div class="value">${stats.ordersByStatus.pending + stats.ordersByStatus.processing}</div>
+        <div class="sub">${stats.ordersByStatus.pending} pending &middot; ${stats.ordersByStatus.processing} processing</div>
+    </div>
+    <div class="card">
+        <h3>Orders Fulfilled</h3>
+        <div class="value">${stats.ordersByStatus.shipped + stats.ordersByStatus.delivered}</div>
+        <div class="sub">${stats.ordersByStatus.shipped} shipped &middot; ${stats.ordersByStatus.delivered} delivered</div>
+    </div>
+</div>
+
+<!-- Recent Orders Table -->
+<h2 class="section-title">Recent Orders</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Total</th>
+            <th>Status</th>
+            <th>Date</th>
+        </tr>
+    </thead>
+    <tbody>
+` + recentOrders.map(order => `
+        <tr>
+            <td><strong>${order.id}</strong></td>
+            <td>${order.customer}</td>
+            <td>${order.items}</td>
+            <td>$${order.total.toFixed(2)}</td>
+            <td><span class="status status-${order.status}">${order.status}</span></td>
+            <td>${order.created_at}</td>
+        </tr>
+`).join('') + `
+    </tbody>
+</table>
+
+` }) %>

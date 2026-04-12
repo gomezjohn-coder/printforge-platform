@@ -1,0 +1,231 @@
+# -- product-service: Production-ready default values
+# Override per-environment via helm/environments/<env>/values.yaml
+
+replicaCount: 3
+revisionHistoryLimit: 5
+
+image:
+  registry: ""
+  repository: printforge/product-service
+  tag: ""  # defaults to Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Container listening port
+containerPort: 3001
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 3001
+  targetPort: http
+  annotations: {}
+  additionalPorts: []
+
+# -- Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    nginx.ingress.kubernetes.io/rate-limit-rps: "50"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.printforge.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: product-service-tls
+      hosts:
+        - api.printforge.io
+
+# -- Resource requests and limits
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# -- Health check probes
+probes:
+  startup:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+
+# -- HPA configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      maxPods: 2
+      maxPercent: 50
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      maxPods: 1
+
+# -- Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# -- Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/product-service
+
+automountServiceAccountToken: false
+
+# -- Pod security context
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# -- Termination grace period
+terminationGracePeriodSeconds: 30
+
+# -- ConfigMap reference for envFrom
+configMapRef: ""
+
+# -- Secret reference for envFrom
+secretRef: product-service-secrets
+
+# -- Direct environment variables
+env:
+  - name: NODE_ENV
+    value: production
+  - name: PORT
+    value: "3001"
+  - name: LOG_LEVEL
+    value: info
+  - name: LOG_FORMAT
+    value: json
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: product-service-secrets
+        key: database-url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: product-service-secrets
+        key: redis-url
+  - name: ARTIST_SERVICE_URL
+    value: "http://artist-service:8080"
+  - name: SEARCH_SERVICE_URL
+    value: "http://search-service:3002"
+
+# -- ConfigMap data (non-secret config)
+config:
+  CORS_ORIGINS: "https://printforge.io,https://www.printforge.io"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  UPLOAD_MAX_FILE_SIZE: "10485760"
+  PAGINATION_DEFAULT_LIMIT: "20"
+  PAGINATION_MAX_LIMIT: "100"
+  CACHE_TTL_SECONDS: "300"
+
+# -- Init containers (DB migration readiness check)
+initContainers:
+  - name: wait-for-db
+    image: busybox:1.36
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for database to be ready..."
+        until nc -z postgres 5432; do
+          echo "Database not ready - sleeping"
+          sleep 2
+        done
+        echo "Database is ready"
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+  - name: run-migrations
+    image: printforge/product-service:latest
+    command:
+      - sh
+      - -c
+      - "npm run db:migrate"
+    env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: product-service-secrets
+            key: database-url
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+
+# -- Network policy
+networkPolicy:
+  enabled: true
+
+# -- Canary deployment (Flagger)
+canary:
+  enabled: false
+  progressDeadlineSeconds: 600
+  analysis:
+    interval: 1m
+    threshold: 5
+    stepWeight: 10
+    maxWeight: 50
+  metrics:
+    requestSuccessRate: 99
+    requestDurationP99: 500
+  webhooks:
+    loadtest:
+      url: "http://flagger-loadtester.flagger-system/"
+    slack:
+      url: ""
+
+# -- Extra labels and annotations
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumeMounts: []
+volumes: []
+additionalPorts: []
+extraEnvFrom: []

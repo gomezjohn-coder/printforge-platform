@@ -1,0 +1,243 @@
+# -- order-service: Production-ready default values
+# Override per-environment via helm/environments/<env>/values.yaml
+#
+# This chart is the critical checkout path. Reliability tuning:
+#   - HPA pre-scales aggressively on CPU (60%) to absorb traffic spikes
+#   - PDB keeps minAvailable at 2 during node drains
+#   - Rolling update uses maxSurge: 1, maxUnavailable: 0 → zero-downtime deploys
+#   - Init container waits for product-service readiness before serving traffic
+
+replicaCount: 3
+revisionHistoryLimit: 5
+
+image:
+  registry: ""
+  repository: printforge/order-service
+  tag: ""  # defaults to Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Container listening port
+containerPort: 3003
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 3003
+  targetPort: http
+  annotations: {}
+  additionalPorts: []
+
+# -- Ingress configuration (checkout endpoint is public)
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit-connections: "20"
+    nginx.ingress.kubernetes.io/rate-limit-rps: "100"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "10"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: checkout.printforge.io
+      paths:
+        - path: /api/v1/checkout
+          pathType: Prefix
+        - path: /api/v1/orders
+          pathType: Prefix
+  tls:
+    - secretName: order-service-tls
+      hosts:
+        - checkout.printforge.io
+
+# -- Resource requests and limits
+# Sized for ~200 req/s baseline; HPA handles Black Friday spikes (3x load)
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# -- Health check probes
+probes:
+  startup:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+
+# -- HPA configuration
+# Aggressive scale-up (60% CPU target) because checkout latency is SLO-bound.
+# Conservative scale-down (5min stabilization) to avoid thrash during sales.
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      maxPods: 4
+      maxPercent: 100
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      maxPods: 1
+
+# -- Pod Disruption Budget
+# minAvailable: 2 guarantees quorum during rolling node drains
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# -- Service account (for IRSA → Secrets Manager in prod)
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/order-service
+
+automountServiceAccountToken: false
+
+# -- Pod security context
+podSecurityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+# -- Termination grace period (matches shutdown timer in server.js)
+terminationGracePeriodSeconds: 30
+
+# -- ConfigMap reference for envFrom
+configMapRef: ""
+
+# -- Secret reference for envFrom
+secretRef: order-service-secrets
+
+# -- Local fallback secret (Kind/CI only). In prod, secrets come from AWS
+# Secrets Manager via the External Secrets Operator and an IRSA-bound SA.
+secret:
+  createLocalFallback: false
+  databaseUrl: ""
+  redisUrl: ""
+  stripeApiKey: ""
+
+# -- Direct environment variables
+env:
+  - name: NODE_ENV
+    value: production
+  - name: PORT
+    value: "3003"
+  - name: LOG_LEVEL
+    value: info
+  - name: LOG_FORMAT
+    value: json
+  - name: PRODUCT_SERVICE_URL
+    value: "http://product-service:3001"
+  - name: MONOLITH_SERVICE_URL
+    value: "http://monolith-service:4000"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: order-service-secrets
+        key: database-url
+  - name: STRIPE_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: order-service-secrets
+        key: stripe-api-key
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: order-service-secrets
+        key: redis-url
+
+# -- ConfigMap data (non-secret config)
+config:
+  CHECKOUT_TIMEOUT_MS: "5000"
+  PAYMENT_RETRY_ATTEMPTS: "3"
+  CIRCUIT_BREAKER_THRESHOLD: "5"
+  CIRCUIT_BREAKER_RESET_MS: "30000"
+  CORS_ORIGINS: "https://printforge.io,https://www.printforge.io"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "300"
+
+# -- Init containers (wait for product-service before serving)
+initContainers:
+  - name: wait-for-product-service
+    image: busybox:1.36
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for product-service to be reachable..."
+        until wget -qO- --spider http://product-service:3001/healthz; do
+          echo "product-service not ready — sleeping"
+          sleep 2
+        done
+        echo "product-service is ready"
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+
+# -- Network policy
+networkPolicy:
+  enabled: true
+
+# -- Canary deployment (Flagger)
+# SLO-driven: promotion gates on 99.9% success rate + < 500ms p99
+canary:
+  enabled: true
+  progressDeadlineSeconds: 600
+  analysis:
+    interval: 1m
+    threshold: 5
+    stepWeight: 10
+    maxWeight: 50
+  metrics:
+    requestSuccessRate: 99.9
+    requestDurationP99: 500
+  webhooks:
+    loadtest:
+      url: "http://flagger-loadtester.flagger-system/"
+    slack:
+      url: ""
+
+# -- Extra labels and annotations
+podLabels:
+  tier: critical
+  slo-owner: checkout-availability
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3003"
+  prometheus.io/path: "/metrics"
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumeMounts: []
+volumes: []
+additionalPorts: []
+extraEnvFrom: []

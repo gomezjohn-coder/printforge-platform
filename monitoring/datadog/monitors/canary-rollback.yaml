@@ -1,0 +1,84 @@
+# PrintForge Monitor: Flagger Canary Rollback
+# Priority: P2 (ticket + notification)
+#
+# Detects when Flagger performs an automatic rollback of a canary deployment.
+# This means a deployment failed metric checks during progressive delivery
+# and was automatically reverted. While not a production outage (Flagger
+# prevented it), it requires investigation and a fix before re-deploying.
+
+name: "[P2] PrintForge — Canary Rollback Detected"
+type: event-v2 alert
+priority: 2
+
+query: >
+  events("source:flagger status:error kube_namespace:printforge").rollup("count").by("kube_deployment").last("5m") > 0
+
+# Alternative query using Flagger's Prometheus metrics if events are unavailable:
+# query: >
+#   max(last_5m):
+#     flagger_canary_status{
+#       namespace:printforge,
+#       status:failed
+#     }
+#   by {name}
+#   > 0
+
+message: |
+  {{#is_alert}}
+  **P2 ALERT: Canary rollback detected for {{kube_deployment.name}}**
+
+  Flagger has automatically rolled back a canary deployment because it failed
+  the metric analysis thresholds. Production traffic was not impacted — the
+  canary was reverted before receiving significant traffic.
+
+  **What happened:**
+  Flagger progressively shifted traffic to the new version in 10% increments.
+  At one of the analysis checkpoints, the canary failed to meet one or more
+  of these thresholds:
+  - Request success rate >= 99%
+  - P99 latency <= 500ms
+  - Custom error rate <= 1%
+
+  **Investigation steps:**
+  1. Check Flagger events for the specific failure reason:
+     ```
+     kubectl -n printforge describe canary {{kube_deployment.name}}
+     ```
+  2. Review canary logs during the analysis window:
+     ```
+     kubectl -n printforge logs -l app={{kube_deployment.name}}-canary --since=30m
+     ```
+  3. Check the Flagger analysis metrics in the dashboard
+  4. Review the code changes in the failed deployment
+
+  **Next steps:**
+  - Fix the issue identified in the canary analysis
+  - Re-run load tests locally: `k6 run monitoring/k6/baseline.js`
+  - Re-deploy after the fix
+
+  **Dashboard:** https://app.datadoghq.com/dashboard/printforge-service-overview
+  **Canary docs:** https://docs.printforge.io/platform/canary-deployments
+  {{/is_alert}}
+
+  {{#is_recovery}}
+  **Recovered: No further canary rollback events for {{kube_deployment.name}}**
+  {{/is_recovery}}
+
+  @slack-printforge-deployments
+
+tags:
+  - team:platform
+  - env:production
+  - kube_namespace:printforge
+  - severity:p2
+  - component:flagger
+
+options:
+  thresholds:
+    critical: 0
+  notify_no_data: false
+  require_full_window: false
+  include_tags: true
+  evaluation_delay: 60
+
+  renotify_interval: 0

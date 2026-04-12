@@ -1,0 +1,24 @@
+replicaCount: 2
+
+image:
+  repository: <your-account>.dkr.ecr.us-east-1.amazonaws.com/product-service
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 15
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

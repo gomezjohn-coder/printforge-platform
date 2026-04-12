@@ -1,0 +1,12 @@
+# Critical priority — product-service and order-service (the SLO-owning services)
+# Ensures these pods are always scheduled, even under resource pressure
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: printforge-critical
+  labels:
+    app.kubernetes.io/part-of: printforge
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Critical priority for SLO-owning marketplace services (product-service, order-service). These pods will preempt lower-priority pods if needed."

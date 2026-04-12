@@ -1,0 +1,511 @@
+{
+  "title": "PrintForge — DORA Metrics",
+  "description": "DORA (DevOps Research and Assessment) four key metrics: Deployment Frequency, Lead Time for Changes, Mean Time to Recovery (MTTR), and Change Failure Rate. Tracked per service to measure engineering velocity and reliability.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "default": "production"
+    },
+    {
+      "name": "service",
+      "prefix": "service",
+      "default": "*",
+      "available_values": ["product-service", "order-service", "marketplace-web", "search-service", "artist-service", "monolith-service"]
+    },
+    {
+      "name": "team",
+      "prefix": "team",
+      "default": "*"
+    }
+  ],
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "title": "DORA Summary (Last 30 Days)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 100,
+            "definition": {
+              "title": "Deployment Frequency",
+              "title_size": "16",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value,service:$service.value}.as_count().rollup(sum, 2592000)",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "custom_unit": "deploys/30d",
+              "conditional_formats": [
+                { "comparator": ">=", "value": 30, "palette": "white_on_green", "custom_fg_color": null },
+                { "comparator": ">=", "value": 7, "palette": "white_on_yellow" },
+                { "comparator": "<", "value": 7, "palette": "white_on_red" }
+              ],
+              "text_align": "center"
+            }
+          },
+          {
+            "id": 101,
+            "definition": {
+              "title": "Lead Time for Changes",
+              "title_size": "16",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:deployments.lead_time_seconds{env:$env.value,service:$service.value}.rollup(avg, 2592000)",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1 / 3600" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 1,
+              "custom_unit": "hours",
+              "conditional_formats": [
+                { "comparator": "<=", "value": 24, "palette": "white_on_green" },
+                { "comparator": "<=", "value": 168, "palette": "white_on_yellow" },
+                { "comparator": ">", "value": 168, "palette": "white_on_red" }
+              ],
+              "text_align": "center"
+            }
+          },
+          {
+            "id": 102,
+            "definition": {
+              "title": "Mean Time to Recovery (MTTR)",
+              "title_size": "16",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:incidents.recovery_time_seconds{env:$env.value,service:$service.value}.rollup(avg, 2592000)",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1 / 60" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "custom_unit": "min",
+              "conditional_formats": [
+                { "comparator": "<=", "value": 60, "palette": "white_on_green" },
+                { "comparator": "<=", "value": 1440, "palette": "white_on_yellow" },
+                { "comparator": ">", "value": 1440, "palette": "white_on_red" }
+              ],
+              "text_align": "center"
+            }
+          },
+          {
+            "id": 103,
+            "definition": {
+              "title": "Change Failure Rate",
+              "title_size": "16",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "failures",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.failed{env:$env.value,service:$service.value}.as_count().rollup(sum, 2592000)",
+                      "aggregator": "last"
+                    },
+                    {
+                      "name": "total",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value,service:$service.value}.as_count().rollup(sum, 2592000)",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "(failures / total) * 100" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 1,
+              "custom_unit": "%",
+              "conditional_formats": [
+                { "comparator": "<=", "value": 5, "palette": "white_on_green" },
+                { "comparator": "<=", "value": 15, "palette": "white_on_yellow" },
+                { "comparator": ">", "value": 15, "palette": "white_on_red" }
+              ],
+              "text_align": "center"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "title": "Deployment Frequency",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 200,
+            "definition": {
+              "title": "Deployments Per Day by Service",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value,service:$service.value}.as_count().rollup(sum, 86400) by {service}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "cool" }
+                }
+              ],
+              "yaxis": { "label": "deploys/day" }
+            }
+          },
+          {
+            "id": 201,
+            "definition": {
+              "title": "Weekly Deploy Frequency Trend",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value}.as_count().rollup(sum, 604800)"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "style": { "line_width": "thick" }
+                }
+              ],
+              "yaxis": { "label": "deploys/week" }
+            }
+          },
+          {
+            "id": 202,
+            "definition": {
+              "title": "Deployments by Day of Week",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value}.as_count() by {day_of_week}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1", "limit": { "count": 7, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "title": "Lead Time for Changes",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 300,
+            "definition": {
+              "title": "Lead Time (Commit to Deploy) — P50 / P95",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "p50",
+                      "data_source": "metrics",
+                      "query": "p50:deployments.lead_time_seconds{env:$env.value,service:$service.value}.rollup(avg, 86400)"
+                    },
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "p95:deployments.lead_time_seconds{env:$env.value,service:$service.value}.rollup(avg, 86400)"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "p50 / 3600", "alias": "P50 (hours)" },
+                    { "formula": "p95 / 3600", "alias": "P95 (hours)" }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "hours" }
+            }
+          },
+          {
+            "id": 301,
+            "definition": {
+              "title": "Lead Time by Service (P50)",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "p50:deployments.lead_time_seconds{env:$env.value} by {service}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1 / 3600", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": 302,
+            "definition": {
+              "title": "CI Pipeline Duration (P50/P95)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "p50",
+                      "data_source": "metrics",
+                      "query": "p50:ci.pipeline.duration_seconds{service:$service.value}.rollup(avg, 86400)"
+                    },
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "p95:ci.pipeline.duration_seconds{service:$service.value}.rollup(avg, 86400)"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "p50 / 60", "alias": "P50 (min)" },
+                    { "formula": "p95 / 60", "alias": "P95 (min)" }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "minutes" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "title": "Mean Time to Recovery (MTTR)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 400,
+            "definition": {
+              "title": "MTTR Trend (Daily Average)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:incidents.recovery_time_seconds{env:$env.value,service:$service.value}.rollup(avg, 86400)"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "query1 / 60", "alias": "MTTR (minutes)" }
+                  ],
+                  "display_type": "line",
+                  "style": { "palette": "warm" }
+                }
+              ],
+              "yaxis": { "label": "minutes" }
+            }
+          },
+          {
+            "id": 401,
+            "definition": {
+              "title": "Incidents by Severity (Last 30d)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:incidents.count{env:$env.value,service:$service.value}.as_count() by {severity}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "semantic" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 402,
+            "definition": {
+              "title": "MTTR by Service",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:incidents.recovery_time_seconds{env:$env.value} by {service}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "query1 / 60", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "title": "Change Failure Rate",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 500,
+            "definition": {
+              "title": "Change Failure Rate (%) — Weekly",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "failed",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.failed{env:$env.value,service:$service.value}.as_count().rollup(sum, 604800)"
+                    },
+                    {
+                      "name": "total",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value,service:$service.value}.as_count().rollup(sum, 604800)"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "(failed / total) * 100", "alias": "Failure Rate %" }
+                  ],
+                  "display_type": "line",
+                  "style": { "palette": "warm" }
+                }
+              ],
+              "yaxis": { "label": "%", "min": "0" },
+              "markers": [
+                { "value": "y = 15", "display_type": "error dashed", "label": "Poor: 15%" },
+                { "value": "y = 5", "display_type": "warning dashed", "label": "Target: <5%" }
+              ]
+            }
+          },
+          {
+            "id": 501,
+            "definition": {
+              "title": "Failed Deployments (Rollbacks + Canary Failures)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "rollbacks",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.rollback{env:$env.value,service:$service.value}.as_count() by {service}"
+                    },
+                    {
+                      "name": "canary_fails",
+                      "data_source": "metrics",
+                      "query": "sum:flagger_canary_status{namespace:printforge,status:failed}.as_count() by {name}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "rollbacks", "alias": "Manual Rollbacks" },
+                    { "formula": "canary_fails", "alias": "Canary Failures" }
+                  ],
+                  "display_type": "bars",
+                  "style": { "palette": "warm" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 502,
+            "definition": {
+              "title": "Change Failure Rate by Service",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "failed",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.failed{env:$env.value}.as_count() by {service}"
+                    },
+                    {
+                      "name": "total",
+                      "data_source": "metrics",
+                      "query": "sum:deployments.count{env:$env.value}.as_count() by {service}"
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    { "formula": "(failed / total) * 100", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "notify_list": [],
+  "tags": ["team:platform", "project:printforge", "type:dora"]
+}

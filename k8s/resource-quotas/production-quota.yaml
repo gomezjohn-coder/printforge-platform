@@ -1,0 +1,24 @@
+# Production resource quotas — prevent resource exhaustion
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    environment: production
+spec:
+  hard:
+    # Compute limits
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    # Object count limits
+    pods: "100"
+    services: "20"
+    configmaps: "50"
+    secrets: "30"
+    persistentvolumeclaims: "10"
+    # Prevent uncontrolled replicaset creation
+    count/replicasets.apps: "50"

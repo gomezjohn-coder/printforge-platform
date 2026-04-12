@@ -1,0 +1,152 @@
+# ============================================================
+# Production Canary Deployment Pipeline
+# ============================================================
+# Flow: Build → Test → Approve → Canary → Metrics Check → Promote
+# See ADR-003: Flagger Canary Deployments
+# See ADR-007: Buildkite for CD, GitHub Actions for CI
+# ============================================================
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REGISTRY: "${AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-2.amazonaws.com"
+  CLUSTER_NAME: printforge-production
+  NAMESPACE: printforge
+  DATADOG_API_URL: https://api.datadoghq.com
+
+steps:
+  # ── Stage 1: Build & Push Docker Images ─────────────────
+  - group: ":docker: Build & Push"
+    steps:
+      - label: ":docker: Build ${SERVICE_NAME}"
+        command: |
+          IMAGE_TAG="${BUILDKITE_COMMIT:0:8}"
+          IMAGE_URI="${ECR_REGISTRY}/printforge/${SERVICE_NAME}:${IMAGE_TAG}"
+
+          echo "--- Building ${SERVICE_NAME}:${IMAGE_TAG}"
+          docker build \
+            --cache-from "${ECR_REGISTRY}/printforge/${SERVICE_NAME}:latest" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t "${IMAGE_URI}" \
+            -t "${ECR_REGISTRY}/printforge/${SERVICE_NAME}:latest" \
+            ./services/${SERVICE_NAME}
+
+          echo "--- Pushing to ECR"
+          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+          docker push "${IMAGE_URI}"
+          docker push "${ECR_REGISTRY}/printforge/${SERVICE_NAME}:latest"
+
+          buildkite-agent meta-data set "image-tag" "${IMAGE_TAG}"
+        plugins:
+          - docker-compose#v4.16.0:
+              cli-version: 2
+
+  # ── Stage 2: Integration Tests Against Staging ──────────
+  - label: ":test_tube: Integration Tests (Staging)"
+    command: |
+      echo "--- Running integration tests against staging"
+      IMAGE_TAG=$(buildkite-agent meta-data get "image-tag")
+
+      # Deploy to staging first
+      helm upgrade --install ${SERVICE_NAME} ./helm/charts/${SERVICE_NAME} \
+        -n printforge-staging \
+        -f ./helm/environments/staging/values.yaml \
+        --set image.tag=${IMAGE_TAG} \
+        --wait --timeout 180s
+
+      # Run integration tests
+      .buildkite/scripts/smoke-test.sh staging
+    depends_on: "Build ${SERVICE_NAME}"
+
+  # ── Stage 3: Manual Approval Gate ──────────────────────
+  - block: ":raised_hand: Deploy to Production?"
+    prompt: |
+      Service: ${SERVICE_NAME}
+      Image: ${BUILDKITE_COMMIT:0:8}
+
+      This will initiate a canary deployment to production.
+      Traffic will shift: 10% → 20% → 30% → 40% → 50% → 100%
+
+      Confirm to proceed.
+    fields:
+      - select: "Deployment Strategy"
+        key: "strategy"
+        options:
+          - label: "Canary (recommended)"
+            value: "canary"
+          - label: "Rolling Update (skip canary)"
+            value: "rolling"
+    depends_on: "Integration Tests (Staging)"
+
+  # ── Stage 4: Deploy Canary ─────────────────────────────
+  - label: ":canary: Deploy Canary"
+    command: |
+      IMAGE_TAG=$(buildkite-agent meta-data get "image-tag")
+      STRATEGY=$(buildkite-agent meta-data get "strategy")
+
+      echo "--- Deploying canary: ${SERVICE_NAME}:${IMAGE_TAG}"
+      .buildkite/scripts/deploy-canary.sh \
+        --service ${SERVICE_NAME} \
+        --image-tag ${IMAGE_TAG} \
+        --namespace ${NAMESPACE} \
+        --strategy ${STRATEGY}
+    depends_on: "Deploy to Production?"
+
+  # ── Stage 5: Monitor Canary Metrics ────────────────────
+  - label: ":chart_with_upwards_trend: Monitor Canary (5m)"
+    command: |
+      echo "--- Monitoring canary metrics for 5 minutes"
+      .buildkite/scripts/check-canary-metrics.sh \
+        --service ${SERVICE_NAME} \
+        --namespace ${NAMESPACE} \
+        --duration 300 \
+        --success-threshold 99 \
+        --latency-threshold 500
+
+      RESULT=$?
+      if [ $RESULT -ne 0 ]; then
+        echo "--- :rotating_light: Canary metrics failed! Initiating rollback..."
+        buildkite-agent meta-data set "canary-status" "failed"
+        .buildkite/scripts/rollback.sh --service ${SERVICE_NAME} --namespace ${NAMESPACE}
+        .buildkite/scripts/notify-slack.sh --event rollback --service ${SERVICE_NAME}
+        exit 1
+      fi
+
+      buildkite-agent meta-data set "canary-status" "passed"
+      echo "--- :white_check_mark: Canary metrics passed!"
+    depends_on: "Deploy Canary"
+    timeout_in_minutes: 10
+
+  # ── Stage 6: Promote Canary ────────────────────────────
+  - label: ":rocket: Promote to Production"
+    command: |
+      CANARY_STATUS=$(buildkite-agent meta-data get "canary-status")
+
+      if [ "${CANARY_STATUS}" != "passed" ]; then
+        echo "Canary did not pass. Aborting promotion."
+        exit 1
+      fi
+
+      echo "--- Promoting canary to full production"
+      .buildkite/scripts/promote-canary.sh \
+        --service ${SERVICE_NAME} \
+        --namespace ${NAMESPACE}
+    depends_on: "Monitor Canary (5m)"
+
+  # ── Stage 7: Post-Deploy Smoke Tests ───────────────────
+  - label: ":white_check_mark: Smoke Tests (Production)"
+    command: |
+      echo "--- Running production smoke tests"
+      .buildkite/scripts/smoke-test.sh production
+
+      if [ $? -eq 0 ]; then
+        echo "--- :tada: Deployment successful!"
+        .buildkite/scripts/notify-slack.sh \
+          --event success \
+          --service ${SERVICE_NAME} \
+          --version $(buildkite-agent meta-data get "image-tag")
+      else
+        echo "--- :rotating_light: Smoke tests failed!"
+        .buildkite/scripts/notify-slack.sh --event smoke-failure --service ${SERVICE_NAME}
+        exit 1
+      fi
+    depends_on: "Promote to Production"

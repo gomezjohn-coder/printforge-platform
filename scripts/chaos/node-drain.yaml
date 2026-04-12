@@ -1,0 +1,126 @@
+# PrintForge — Chaos Mesh: Node Failure Simulation
+#
+# Simulates node failure by cordoning and draining a worker node to validate:
+#   - Pod rescheduling to surviving nodes
+#   - Pod Disruption Budget compliance during drain
+#   - Service continuity during node loss
+#   - Anti-affinity rules distribute pods across nodes
+#   - HPA behavior when capacity decreases
+#
+# This simulates real-world conditions like:
+#   - EC2 spot instance reclamation
+#   - Node hardware failure
+#   - Planned node maintenance / kernel upgrade
+#   - Availability zone outage (single node)
+#
+# Prerequisites:
+#   - Chaos Mesh installed with physical machine chaos support
+#   - The cluster must have enough spare capacity on remaining nodes
+#
+# Usage:
+#   kubectl apply -f scripts/chaos/node-drain.yaml
+#   kubectl get physicalmachinechaos -n printforge  # (if using PhysicalMachineChaos)
+#   kubectl delete -f scripts/chaos/node-drain.yaml  # stop experiment
+#
+# Alternative manual approach:
+#   kubectl cordon <node-name>
+#   kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+#   # observe pod rescheduling
+#   kubectl uncordon <node-name>
+
+# ---------------------------------------------------------------------------
+# Approach 1: StressChaos to simulate node resource pressure
+# This is safer than actual node drain and works in Kind clusters
+# ---------------------------------------------------------------------------
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: printforge-node-stress
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: node-stress
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Apply CPU and memory pressure to simulate a node approaching resource
+      exhaustion. This triggers HPA scale-up and tests pod eviction behavior.
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app.kubernetes.io/part-of": "printforge"
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+    memory:
+      workers: 1
+      size: "256MB"
+  duration: "5m"
+---
+# ---------------------------------------------------------------------------
+# Approach 2: PodChaos container-kill to simulate node-level disruption
+# Kills all containers in selected pods simultaneously
+# ---------------------------------------------------------------------------
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: printforge-node-drain-sim
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: node-drain
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Simulates node failure by killing multiple pods simultaneously.
+      This mimics a sudden node loss where all pods on the node terminate
+      at once. Validates that PDB, anti-affinity, and HPA together
+      maintain service availability.
+spec:
+  action: pod-kill
+  # Kill a fixed number of pods (simulates losing one node's worth of pods)
+  mode: fixed-number
+  value: "3"
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app.kubernetes.io/part-of": "printforge"
+  gracePeriod: 0  # Immediate kill — simulates abrupt node failure
+  duration: "1m"
+---
+# ---------------------------------------------------------------------------
+# Approach 3: Schedule-based node drain simulation
+# Runs periodically to test sustained resilience
+# ---------------------------------------------------------------------------
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: printforge-periodic-node-failure
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: periodic-node-failure
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Periodically simulates node failure every 10 minutes. Used during
+      game day exercises to continuously validate resilience over an
+      extended period.
+spec:
+  schedule: "*/10 * * * *"
+  historyLimit: 5
+  concurrencyPolicy: Forbid
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: fixed-number
+    value: "2"
+    selector:
+      namespaces:
+        - printforge
+      labelSelectors:
+        "app.kubernetes.io/part-of": "printforge"
+    gracePeriod: 0
+    duration: "30s"

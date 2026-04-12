@@ -1,0 +1,25 @@
+# ============================================================
+# DEFAULT DENY ALL — The foundation of our network security model
+# ============================================================
+# This policy denies ALL ingress and egress traffic by default.
+# Every service must have an explicit NetworkPolicy to allow
+# the specific traffic it needs. This ensures:
+#   1. No unintended service-to-service communication
+#   2. Blast radius containment if a pod is compromised
+#   3. Clear documentation of traffic flows
+#
+# See ADR-005: Network Policy Default Deny
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    policy-type: default-deny
+spec:
+  podSelector: {}  # Applies to ALL pods in namespace
+  policyTypes:
+    - Ingress
+    - Egress

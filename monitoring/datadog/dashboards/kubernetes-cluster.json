@@ -1,0 +1,537 @@
+{
+  "title": "PrintForge — Kubernetes Cluster Health",
+  "description": "Cluster-level visibility: node health, pod lifecycle, resource utilization, and scheduling. Use during capacity planning and infrastructure incidents.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "cluster",
+      "prefix": "kube_cluster_name",
+      "default": "printforge-prod"
+    },
+    {
+      "name": "namespace",
+      "prefix": "kube_namespace",
+      "default": "printforge"
+    }
+  ],
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "title": "Cluster Overview",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 100,
+            "definition": {
+              "title": "Nodes Ready",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.node.count{kube_cluster_name:$cluster.value,status:ready}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "autoscale": false
+            }
+          },
+          {
+            "id": 101,
+            "definition": {
+              "title": "Nodes Not Ready",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.node.count{kube_cluster_name:$cluster.value,!status:ready}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "autoscale": false,
+              "custom_unit": "",
+              "conditional_formats": [
+                { "comparator": ">", "value": 0, "palette": "white_on_red" },
+                { "comparator": "<=", "value": 0, "palette": "white_on_green" }
+              ]
+            }
+          },
+          {
+            "id": 102,
+            "definition": {
+              "title": "Total Pods (Running)",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes.pods.running{kube_cluster_name:$cluster.value,kube_namespace:$namespace.value}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0
+            }
+          },
+          {
+            "id": 103,
+            "definition": {
+              "title": "Pods Pending",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.pod.status_phase{kube_cluster_name:$cluster.value,kube_namespace:$namespace.value,pod_phase:pending}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "conditional_formats": [
+                { "comparator": ">", "value": 0, "palette": "white_on_yellow" },
+                { "comparator": "<=", "value": 0, "palette": "white_on_green" }
+              ]
+            }
+          },
+          {
+            "id": 104,
+            "definition": {
+              "title": "CrashLoopBackOff Containers",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.container.status_report.count.waiting{kube_cluster_name:$cluster.value,kube_namespace:$namespace.value,reason:crashloopbackoff}",
+                      "aggregator": "last"
+                    }
+                  ],
+                  "formulas": [{ "formula": "query1" }],
+                  "response_format": "scalar"
+                }
+              ],
+              "precision": 0,
+              "conditional_formats": [
+                { "comparator": ">", "value": 0, "palette": "white_on_red" },
+                { "comparator": "<=", "value": 0, "palette": "white_on_green" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "title": "Node Health",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 200,
+            "definition": {
+              "title": "Node CPU Utilization (%)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:system.cpu.user{kube_cluster_name:$cluster.value} by {host} + avg:system.cpu.system{kube_cluster_name:$cluster.value} by {host}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "%", "min": "0", "max": "100" },
+              "markers": [
+                { "value": "y = 85", "display_type": "error dashed", "label": "Critical: 85%" }
+              ]
+            }
+          },
+          {
+            "id": 201,
+            "definition": {
+              "title": "Node Memory Utilization (%)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:system.mem.pct_usable{kube_cluster_name:$cluster.value} by {host}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "style": { "palette": "purple" }
+                }
+              ],
+              "yaxis": { "label": "%", "min": "0", "max": "100" }
+            }
+          },
+          {
+            "id": 202,
+            "definition": {
+              "title": "Node Disk Utilization (%)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:system.disk.in_use{kube_cluster_name:$cluster.value} by {host,device}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "%", "min": "0", "max": "100" },
+              "markers": [
+                { "value": "y = 90", "display_type": "error dashed", "label": "Critical: 90%" }
+              ]
+            }
+          },
+          {
+            "id": 203,
+            "definition": {
+              "title": "Node Network I/O",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:system.net.bytes_rcvd{kube_cluster_name:$cluster.value} by {host}"
+                    },
+                    {
+                      "name": "query2",
+                      "data_source": "metrics",
+                      "query": "avg:system.net.bytes_sent{kube_cluster_name:$cluster.value} by {host}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "query1", "alias": "Received" },
+                    { "formula": "query2", "alias": "Sent" }
+                  ],
+                  "display_type": "area"
+                }
+              ],
+              "yaxis": { "label": "bytes/s" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "title": "Pod Status & Lifecycle",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 300,
+            "definition": {
+              "title": "Pod Status by Deployment",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "running",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes.pods.running{kube_namespace:$namespace.value} by {kube_deployment}"
+                    },
+                    {
+                      "name": "desired",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.deployment.replicas_desired{kube_namespace:$namespace.value} by {kube_deployment}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "running", "alias": "Running" },
+                    { "formula": "desired", "alias": "Desired" }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "id": 301,
+            "definition": {
+              "title": "Container Restarts (last 1h)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes.containers.restarts{kube_namespace:$namespace.value} by {kube_deployment}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "warm" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 302,
+            "definition": {
+              "title": "OOM Killed Containers",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.container.status_report.count.terminated{kube_namespace:$namespace.value,reason:oomkilled} by {kube_deployment}.as_count()"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "style": { "palette": "red" }
+                }
+              ]
+            }
+          },
+          {
+            "id": 303,
+            "definition": {
+              "title": "Pod Scheduling Latency",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes_state.pod.age{kube_namespace:$namespace.value,pod_phase:pending} by {kube_deployment}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "seconds" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "title": "Resource Utilization",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 400,
+            "definition": {
+              "title": "CPU Requests vs Limits vs Usage by Deployment",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "usage",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.cpu.usage.total{kube_namespace:$namespace.value} by {kube_deployment}"
+                    },
+                    {
+                      "name": "requests",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.cpu.requests{kube_namespace:$namespace.value} by {kube_deployment}"
+                    },
+                    {
+                      "name": "limits",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.cpu.limits{kube_namespace:$namespace.value} by {kube_deployment}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "usage", "alias": "Usage" },
+                    { "formula": "requests", "alias": "Requests", "style": { "line_type": "dashed" } },
+                    { "formula": "limits", "alias": "Limits", "style": { "line_type": "dotted" } }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "cores" }
+            }
+          },
+          {
+            "id": 401,
+            "definition": {
+              "title": "Memory Requests vs Limits vs Usage by Deployment",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "usage",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.memory.usage{kube_namespace:$namespace.value} by {kube_deployment}"
+                    },
+                    {
+                      "name": "requests",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.memory.requests{kube_namespace:$namespace.value} by {kube_deployment}"
+                    },
+                    {
+                      "name": "limits",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.memory.limits{kube_namespace:$namespace.value} by {kube_deployment}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "usage", "alias": "Usage" },
+                    { "formula": "requests", "alias": "Requests" },
+                    { "formula": "limits", "alias": "Limits" }
+                  ],
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "bytes" }
+            }
+          },
+          {
+            "id": 402,
+            "definition": {
+              "title": "HPA Current vs Desired Replicas",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "current",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.hpa.current_replicas{kube_namespace:$namespace.value} by {horizontalpodautoscaler}"
+                    },
+                    {
+                      "name": "desired",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.hpa.desired_replicas{kube_namespace:$namespace.value} by {horizontalpodautoscaler}"
+                    },
+                    {
+                      "name": "max",
+                      "data_source": "metrics",
+                      "query": "sum:kubernetes_state.hpa.max_replicas{kube_namespace:$namespace.value} by {horizontalpodautoscaler}"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    { "formula": "current", "alias": "Current" },
+                    { "formula": "desired", "alias": "Desired" },
+                    { "formula": "max", "alias": "Max" }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "id": 403,
+            "definition": {
+              "title": "PVC Usage (%)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "name": "query1",
+                      "data_source": "metrics",
+                      "query": "avg:kubernetes.kubelet.volume.stats.used_bytes{kube_namespace:$namespace.value} by {persistentvolumeclaim} / avg:kubernetes.kubelet.volume.stats.capacity_bytes{kube_namespace:$namespace.value} by {persistentvolumeclaim} * 100"
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "display_type": "line"
+                }
+              ],
+              "yaxis": { "label": "%", "min": "0", "max": "100" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "title": "Kubernetes Events",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "id": 500,
+            "definition": {
+              "title": "Recent K8s Warning Events",
+              "type": "event_stream",
+              "query": "source:kubernetes kube_namespace:$namespace.value priority:all status:warning",
+              "event_size": "s",
+              "tags_execution": "and"
+            }
+          },
+          {
+            "id": 501,
+            "definition": {
+              "title": "Deployment Rollout Events",
+              "type": "event_stream",
+              "query": "source:kubernetes kube_namespace:$namespace.value reason:(ScalingReplicaSet OR DeploymentRollback OR FailedCreate)",
+              "event_size": "s",
+              "tags_execution": "and"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "notify_list": [],
+  "tags": ["team:platform", "project:printforge", "type:infrastructure"]
+}

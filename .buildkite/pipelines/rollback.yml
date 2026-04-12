@@ -1,0 +1,32 @@
+# ============================================================
+# Emergency Rollback Pipeline
+# ============================================================
+# Triggered manually during incidents.
+# Parameters: SERVICE_NAME, TARGET_REVISION (optional)
+# ============================================================
+
+steps:
+  - label: ":rotating_light: Emergency Rollback: ${SERVICE_NAME}"
+    command: |
+      echo "--- Emergency rollback initiated"
+      echo "Service: ${SERVICE_NAME}"
+      echo "Target revision: ${TARGET_REVISION:-previous}"
+
+      .buildkite/scripts/rollback.sh \
+        --service ${SERVICE_NAME} \
+        --namespace printforge \
+        --revision "${TARGET_REVISION:-}"
+
+      echo "--- Running smoke tests post-rollback"
+      .buildkite/scripts/smoke-test.sh production
+
+      .buildkite/scripts/notify-slack.sh \
+        --event emergency-rollback \
+        --service ${SERVICE_NAME} \
+        --initiated-by "${BUILDKITE_BUILD_CREATOR}"
+
+  - label: ":memo: Create Incident Ticket"
+    command: |
+      echo "Rollback completed. Please create a postmortem document."
+      echo "Template: docs/runbooks/incident-response.md"
+    depends_on: "Emergency Rollback: ${SERVICE_NAME}"

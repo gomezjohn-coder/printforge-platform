@@ -1,0 +1,19 @@
+{{/*
+product-service Deployment
+==========================
+This is the most critical deployment in the PrintForge platform.
+It invokes the common library deployment template which provides:
+  - All 3 probe types (startup, liveness, readiness)
+  - Resource requests AND limits
+  - topologySpreadConstraints for multi-AZ distribution
+  - podAntiAffinity for node-level spreading
+  - Full securityContext (runAsNonRoot, readOnlyRootFilesystem,
+    allowPrivilegeEscalation: false, drop ALL capabilities, seccomp)
+  - terminationGracePeriodSeconds with preStop lifecycle hook
+  - Environment injection from ConfigMap and Secret refs
+  - Init containers for DB migration readiness and execution
+  - RollingUpdate strategy with maxUnavailable: 0 for zero-downtime deploys
+  - Config checksum annotation for automatic rollout on config changes
+  - emptyDir /tmp volume for readOnlyRootFilesystem compatibility
+*/}}
+{{ include "common.deployment" . }}

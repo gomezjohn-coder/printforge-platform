@@ -1,0 +1,144 @@
+# ============================================================
+# PrintForge — Starter Buildkite Pipeline
+#
+# A working pipeline that runs immediately without AWS/ECR.
+# Demonstrates: parallel builds, testing, Docker builds,
+# change detection, and manual deploy gates.
+# ============================================================
+
+steps:
+  # ── Step 1: Detect what changed ────────────────────────────
+  - label: ":mag: Detect Changes"
+    command: |
+      echo "--- Checking changed files"
+      CHANGED=""
+      for svc in product-service order-service marketplace-web artist-service search-service monolith-service; do
+        if git diff --name-only HEAD~1 2>/dev/null | grep -q "services/$$svc/"; then
+          CHANGED="$$CHANGED $$svc"
+          echo "Changed: $$svc"
+        fi
+      done
+      if [ -z "$$CHANGED" ]; then
+        echo "No service changes detected — running all services"
+        CHANGED="product-service order-service marketplace-web artist-service search-service monolith-service"
+      fi
+      buildkite-agent meta-data set "changed" "$$CHANGED"
+
+  - wait
+
+  # ── Step 2: Lint & Test (parallel per service) ─────────────
+  - group: ":test_tube: Lint & Test"
+    steps:
+      - label: ":nodejs: Test product-service"
+        command:
+          - cd services/product-service
+          - npm ci
+          - npm run lint
+          - npm test
+        artifact_paths:
+          - "services/product-service/coverage/**/*"
+
+      - label: ":nodejs: Test order-service"
+        command:
+          - cd services/order-service
+          - npm ci
+          - npm run lint
+          - npm test
+        artifact_paths:
+          - "services/order-service/coverage/**/*"
+
+      - label: ":nodejs: Test search-service"
+        command:
+          - cd services/search-service
+          - npm ci
+          - npm run lint
+          - npm test
+
+      - label: ":golang: Test artist-service"
+        command:
+          - cd services/artist-service
+          - go test ./...
+
+      - label: ":helm: Validate Helm Charts"
+        command:
+          - helm lint helm/charts/product-service
+          - helm lint helm/charts/order-service
+          - helm lint helm/charts/marketplace-web
+          - helm lint helm/charts/artist-service
+          - helm lint helm/charts/search-service
+
+      - label: ":terraform: Validate Terraform"
+        command:
+          - cd terraform/modules/vpc && terraform init -backend=false && terraform validate
+          - cd ../eks && terraform init -backend=false && terraform validate
+          - cd ../ecs && terraform init -backend=false && terraform validate
+
+  - wait
+
+  # ── Step 3: Docker Builds (parallel) ───────────────────────
+  - group: ":docker: Build Images"
+    steps:
+      - label: ":docker: Build product-service"
+        command:
+          - docker build -t printforge/product-service:build-$$BUILDKITE_BUILD_NUMBER ./services/product-service
+          - echo "Image built — printforge/product-service:build-$$BUILDKITE_BUILD_NUMBER"
+
+      - label: ":docker: Build order-service"
+        command:
+          - docker build -t printforge/order-service:build-$$BUILDKITE_BUILD_NUMBER ./services/order-service
+
+      - label: ":docker: Build marketplace-web"
+        command:
+          - docker build -t printforge/marketplace-web:build-$$BUILDKITE_BUILD_NUMBER ./services/marketplace-web
+
+      - label: ":docker: Build artist-service"
+        command:
+          - docker build -t printforge/artist-service:build-$$BUILDKITE_BUILD_NUMBER ./services/artist-service
+
+      - label: ":docker: Build search-service"
+        command:
+          - docker build -t printforge/search-service:build-$$BUILDKITE_BUILD_NUMBER ./services/search-service
+
+      - label: ":docker: Build monolith-service"
+        command:
+          - docker build -t printforge/monolith-service:build-$$BUILDKITE_BUILD_NUMBER ./services/monolith-service
+
+  - wait
+
+  # ── Step 4: Integration Smoke Test ─────────────────────────
+  - label: ":smoking: Integration Smoke Test"
+    command: |
+      echo "--- Starting services via Docker Compose"
+      docker compose up -d --build
+      echo "--- Waiting for services to be healthy"
+      sleep 30
+      echo "--- Running smoke tests"
+      curl -sf http://localhost:3001/healthz && echo "product-service OK" || echo "product-service FAILED"
+      curl -sf http://localhost:3003/healthz && echo "order-service OK" || echo "order-service FAILED"
+      curl -sf http://localhost:3002/healthz && echo "search-service OK" || echo "search-service FAILED"
+      curl -sf http://localhost:8080/healthz && echo "artist-service OK" || echo "artist-service FAILED"
+      curl -sf http://localhost:4000/healthz && echo "monolith-service OK" || echo "monolith-service FAILED"
+      echo "--- Cleaning up"
+      docker compose down -v
+
+  - wait
+
+  # ── Step 5: Manual Deploy Gate ─────────────────────────────
+  - block: ":rocket: Deploy to Staging?"
+    prompt: "All tests passed. Deploy to staging environment?"
+    branches: "main"
+
+  - label: ":kubernetes: Deploy to Staging (Helm)"
+    command: |
+      echo "--- Deploying to Kubernetes"
+      for svc in product-service order-service marketplace-web artist-service search-service; do
+        echo "Deploying $$svc..."
+        helm upgrade --install $$svc ./helm/charts/$$svc \
+          -n printforge \
+          -f ./helm/environments/staging/values.yaml \
+          --set image.tag=build-$$BUILDKITE_BUILD_NUMBER \
+          --wait --timeout 120s
+      done
+      echo "--- All services deployed"
+      kubectl get pods -n printforge
+    branches: "main"

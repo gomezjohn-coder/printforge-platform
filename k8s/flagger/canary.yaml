@@ -1,0 +1,122 @@
+# Flagger Canary — Progressive delivery for order-service
+# The order-service owns the 99.9% Checkout Availability SLO and < 500ms p99
+# latency SLO, so its deployments use metric-driven canary analysis:
+#   1. New version deploys as canary (receives 0% traffic)
+#   2. Flagger shifts traffic in 10% increments (10 → 20 → ... → 50%)
+#   3. At each step, success rate + p99 latency are checked against Datadog
+#   4. If metrics pass: promote to next step
+#   5. If metrics fail 5 consecutive checks: automatic rollback + Slack alert
+#
+# See ADR-003: Flagger Canary Deployments
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: order-service
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    slo-owner: checkout-availability
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-service
+
+  # Ingress reference for traffic shifting
+  ingressRef:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    name: order-service
+
+  # Service mesh / ingress configuration
+  service:
+    port: 3003
+    targetPort: 3003
+    portDiscovery: true
+    gateways:
+      - printforge-gateway
+    hosts:
+      - checkout.printforge.io
+
+  # Canary analysis configuration
+  analysis:
+    # Analysis interval — how often to check metrics
+    interval: 1m
+    # Max traffic weight for canary
+    maxWeight: 50
+    # Traffic increment per step
+    stepWeight: 10
+    # Number of consecutive failed checks before rollback
+    threshold: 5
+    # Step weights: 10% → 20% → 30% → 40% → 50% → promote
+    stepWeights: [10, 20, 30, 40, 50]
+
+    # Metric checks — the canary is promoted only if ALL pass
+    metrics:
+      # Request success rate (non-5xx) must be above the SLO floor
+      - name: request-success-rate
+        thresholdRange:
+          min: 99.9
+        interval: 1m
+
+      # P99 latency must be under 500ms (matches order-service SLO)
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 1m
+
+      # Custom Datadog metric — checkout error rate from business metrics
+      - name: "dd-checkout-error-rate"
+        templateRef:
+          name: datadog-checkout-error-rate
+          namespace: printforge
+        thresholdRange:
+          max: 0.1  # < 0.1% checkout error rate
+        interval: 1m
+
+    # Webhooks for integration testing and notification
+    webhooks:
+      # Smoke test at each step
+      - name: smoke-test
+        type: pre-rollout
+        url: http://flagger-loadtester.printforge/
+        timeout: 15s
+        metadata:
+          type: bash
+          cmd: |
+            curl -sf http://order-service-canary.printforge:3003/healthz && \
+            curl -sf http://order-service-canary.printforge:3003/readyz
+
+      # Synthetic checkout load during canary analysis
+      - name: load-test
+        type: rollout
+        url: http://flagger-loadtester.printforge/
+        timeout: 5s
+        metadata:
+          cmd: "hey -z 1m -q 20 -c 5 -m POST -D /synthetic-cart.json http://order-service-canary.printforge:3003/api/v1/checkout"
+
+      # Slack notification on promotion/rollback
+      - name: slack-notification
+        type: event
+        url: http://flagger-slack-notifier.printforge/
+        metadata:
+          channel: "#deployments"
+          environment: "production"
+---
+# Custom Datadog metric template for Flagger — checkout error rate
+apiVersion: flagger.app/v1beta1
+kind: MetricTemplate
+metadata:
+  name: datadog-checkout-error-rate
+  namespace: printforge
+spec:
+  provider:
+    type: datadog
+    address: https://api.datadoghq.com
+    secretRef:
+      name: datadog-api-keys
+  query: |
+    100 - (
+      sum:checkout_attempts_total{service:order-service,status:success,kube_deployment:{{ target }}}.as_count() /
+      sum:checkout_attempts_total{service:order-service,kube_deployment:{{ target }}}.as_count()
+    ) * 100

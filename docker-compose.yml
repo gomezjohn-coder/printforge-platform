@@ -1,0 +1,353 @@
+# ============================================================================
+# PrintForge — Docker Compose for Local Development
+#
+# Runs all services + PostgreSQL + Redis with:
+#   - Separate networks (frontend, backend, legacy)
+#   - Health checks on every service
+#   - Resource limits
+#   - Volume mounts for hot-reload
+#
+# Usage:
+#   docker compose up -d                     # start all services
+#   docker compose up product-service -d     # start single service + deps
+#   docker compose logs -f product-service   # tail logs
+#   docker compose down -v                   # stop and remove volumes
+#
+# ============================================================================
+
+services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Infrastructure
+  # ──────────────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: printforge-postgres
+    environment:
+      POSTGRES_USER: printforge
+      POSTGRES_PASSWORD: printforge_dev
+      POSTGRES_DB: printforge
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printforge -d printforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: printforge-redis
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    networks:
+      - backend
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Application Services
+  # ──────────────────────────────────────────────────────────────────────────
+
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: printforge-product-service
+    environment:
+      NODE_ENV: development
+      PORT: "3001"
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      DATABASE_URL: postgres://printforge:printforge_dev@postgres:5432/printforge
+      REDIS_URL: redis://redis:6379
+      ARTIST_SERVICE_URL: http://artist-service:8080
+      SEARCH_SERVICE_URL: http://search-service:3002
+      CORS_ORIGINS: "http://localhost:3000"
+      RATE_LIMIT_WINDOW_MS: "60000"
+      RATE_LIMIT_MAX_REQUESTS: "1000"
+      UPLOAD_MAX_FILE_SIZE: "10485760"
+      PAGINATION_DEFAULT_LIMIT: "20"
+      PAGINATION_MAX_LIMIT: "100"
+      CACHE_TTL_SECONDS: "60"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./services/product-service/src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: printforge-order-service
+    environment:
+      NODE_ENV: development
+      PORT: "3003"
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      DATABASE_URL: postgres://printforge:printforge_dev@postgres:5432/printforge
+      REDIS_URL: redis://redis:6379
+      PRODUCT_SERVICE_URL: http://product-service:3001
+      MONOLITH_SERVICE_URL: http://monolith-service:4000
+      CHECKOUT_TIMEOUT_MS: "5000"
+      PAYMENT_RETRY_ATTEMPTS: "3"
+      CIRCUIT_BREAKER_THRESHOLD: "5"
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./services/order-service/src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+
+  marketplace-web:
+    build:
+      context: ./services/marketplace-web
+      dockerfile: Dockerfile
+    container_name: printforge-marketplace-web
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_ORDER_URL: http://localhost:3003
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./services/marketplace-web/src:/app/src:ro
+      - ./services/marketplace-web/public:/app/public:ro
+    depends_on:
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - frontend
+
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    container_name: printforge-search-service
+    environment:
+      NODE_ENV: development
+      PORT: "3002"
+      LOG_LEVEL: debug
+      PRODUCT_SERVICE_URL: http://product-service:3001
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./services/search-service/src:/app/src:ro
+    depends_on:
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+
+  artist-service:
+    build:
+      context: ./services/artist-service
+      dockerfile: Dockerfile
+    container_name: printforge-artist-service
+    environment:
+      PORT: "8080"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgres://printforge:printforge_dev@postgres:5432/printforge
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    restart: unless-stopped
+    networks:
+      - backend
+
+  monolith-service:
+    build:
+      context: ./services/monolith-service
+      dockerfile: Dockerfile
+    container_name: printforge-monolith-service
+    environment:
+      NODE_ENV: development
+      PORT: "4000"
+      DATABASE_URL: postgres://printforge:printforge_dev@postgres:5432/printforge
+      PRODUCT_SERVICE_URL: http://product-service:3001
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./services/monolith-service/src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - backend
+      - legacy
+
+# ──────────────────────────────────────────────────────────────────────────
+# Networks
+# ──────────────────────────────────────────────────────────────────────────
+
+networks:
+  frontend:
+    name: printforge-frontend
+    driver: bridge
+  backend:
+    name: printforge-backend
+    driver: bridge
+  legacy:
+    name: printforge-legacy
+    driver: bridge
+
+# ──────────────────────────────────────────────────────────────────────────
+# Volumes
+# ──────────────────────────────────────────────────────────────────────────
+
+volumes:
+  postgres_data:
+    name: printforge-postgres-data
+  redis_data:
+    name: printforge-redis-data

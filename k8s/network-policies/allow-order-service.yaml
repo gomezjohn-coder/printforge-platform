@@ -1,0 +1,81 @@
+# order-service network policy — owner of the 99.9% Checkout Availability SLO
+# Ingress: from marketplace-web on 3003, from ingress-nginx on 3003
+# Egress: to product-service:3001, postgres:5432, redis:6379, Stripe (HTTPS),
+#         monolith-service (ECS — cross-cluster via internal NLB CIDR)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-order-service
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    policy-type: service-allow
+    slo-owner: checkout-availability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: order-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Customer checkout originates from marketplace-web
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: marketplace-web
+      ports:
+        - protocol: TCP
+          port: 3003
+    # Direct API clients via ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3003
+  egress:
+    # product-service — cart validation + price lookup
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: product-service
+      ports:
+        - protocol: TCP
+          port: 3001
+    # PostgreSQL — order persistence
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis — idempotency keys + session state
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # monolith-service on ECS — fulfilment handoff via internal NLB
+    # Restricted to private VPC CIDR, narrow port
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Stripe API (HTTPS egress to public internet, excluding private CIDRs)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

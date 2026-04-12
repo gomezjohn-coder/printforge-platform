@@ -1,0 +1,105 @@
+# =============================================================================
+# Production Environment
+# =============================================================================
+# Usage: helm upgrade --install <chart> ./helm/charts/<chart> \
+#          -f ./helm/environments/production/values.yaml
+# =============================================================================
+
+replicaCount: 3
+
+image:
+  pullPolicy: IfNotPresent
+
+# -- Full production resources
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# -- Production autoscaling: higher thresholds, conservative scale-down
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      maxPods: 2
+      maxPercent: 50
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      maxPods: 1
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+networkPolicy:
+  enabled: true
+
+# -- Production ingress with TLS
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    nginx.ingress.kubernetes.io/rate-limit-rps: "50"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.printforge.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: printforge-prod-tls
+      hosts:
+        - api.printforge.io
+        - printforge.io
+        - www.printforge.io
+
+env:
+  - name: NODE_ENV
+    value: production
+  - name: LOG_LEVEL
+    value: info
+  - name: LOG_FORMAT
+    value: json
+
+# -- Flagger canary deployments enabled in production
+canary:
+  enabled: true
+  progressDeadlineSeconds: 600
+  analysis:
+    interval: 1m
+    threshold: 5
+    stepWeight: 10
+    maxWeight: 50
+  metrics:
+    requestSuccessRate: 99
+    requestDurationP99: 500
+  webhooks:
+    loadtest:
+      url: "http://flagger-loadtester.flagger-system/"
+    slack:
+      url: "https://hooks.slack.com/services/PLACEHOLDER"
+
+# -- IRSA-annotated service account for production
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/printforge-production"
+
+terminationGracePeriodSeconds: 30
+
+# -- Production pod annotations for Datadog/Prometheus
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3001"
+  prometheus.io/path: "/metrics"

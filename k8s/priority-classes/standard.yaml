@@ -1,0 +1,11 @@
+# Standard priority — most services (web, artist, search)
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: printforge-standard
+  labels:
+    app.kubernetes.io/part-of: printforge
+value: 100
+globalDefault: true
+preemptionPolicy: PreemptLowerPriority
+description: "Standard priority for marketplace services."

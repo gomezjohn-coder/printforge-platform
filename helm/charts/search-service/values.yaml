@@ -1,0 +1,120 @@
+replicaCount: 2
+revisionHistoryLimit: 5
+
+image:
+  registry: ""
+  repository: printforge/search-service
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+containerPort: 3002
+
+service:
+  type: ClusterIP
+  port: 3002
+  targetPort: http
+  annotations: {}
+  additionalPorts: []
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "250m"
+
+probes:
+  startup:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 20
+  liveness:
+    path: /healthz
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      maxPods: 2
+      maxPercent: 50
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      maxPods: 1
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+automountServiceAccountToken: false
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+terminationGracePeriodSeconds: 30
+
+configMapRef: ""
+secretRef: search-service-secrets
+
+env:
+  - name: NODE_ENV
+    value: production
+  - name: PORT
+    value: "3002"
+  - name: LOG_LEVEL
+    value: info
+  - name: ELASTICSEARCH_URL
+    valueFrom:
+      secretKeyRef:
+        name: search-service-secrets
+        key: elasticsearch-url
+
+config:
+  SEARCH_INDEX_PREFIX: printforge
+  SEARCH_RESULTS_LIMIT: "50"
+  REINDEX_BATCH_SIZE: "500"
+  SEARCH_TIMEOUT_MS: "5000"
+
+networkPolicy:
+  enabled: true
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumeMounts: []
+volumes: []
+additionalPorts: []
+extraEnvFrom: []
+initContainers: []

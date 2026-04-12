@@ -1,0 +1,28 @@
+# Default resource limits — any pod without explicit limits gets these
+# Prevents unbounded resource consumption from misconfigured pods
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "4"
+        memory: 8Gi
+      min:
+        cpu: 10m
+        memory: 16Mi
+    - type: Pod
+      max:
+        cpu: "8"
+        memory: 16Gi

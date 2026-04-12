@@ -1,0 +1,22 @@
+{
+  "name": "@printforge/search-service",
+  "version": "1.0.0",
+  "description": "PrintForge search service with in-memory TF-IDF relevance scoring",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/**/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "uuid": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "private": true
+}

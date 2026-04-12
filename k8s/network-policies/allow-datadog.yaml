@@ -1,0 +1,32 @@
+# Allow Datadog agent to scrape metrics from all pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-datadog-scrape
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    policy-type: observability
+spec:
+  podSelector: {}  # All pods may be scraped
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: datadog
+          podSelector:
+            matchLabels:
+              app: datadog-agent
+      ports:
+        - protocol: TCP
+          port: 3001   # product-service metrics
+        - protocol: TCP
+          port: 3003   # order-service metrics
+        - protocol: TCP
+          port: 3000   # marketplace-web metrics
+        - protocol: TCP
+          port: 8080   # artist-service metrics
+        - protocol: TCP
+          port: 3002   # search-service metrics

@@ -1,0 +1,8 @@
+apiVersion: v2
+name: common
+description: Shared library chart for PrintForge microservices
+type: library
+version: 0.1.0
+maintainers:
+  - name: PrintForge Platform Team
+    email: platform@printforge.io

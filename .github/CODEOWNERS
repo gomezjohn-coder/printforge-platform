@@ -1,0 +1,23 @@
+# PrintForge Code Owners
+# Changes to these paths require review from the specified teams
+
+# Infrastructure — DevOps team owns all IaC and K8s configs
+terraform/                @printforge/devops-team
+helm/                     @printforge/devops-team
+k8s/                      @printforge/devops-team
+.buildkite/               @printforge/devops-team
+.github/workflows/        @printforge/devops-team
+monitoring/               @printforge/devops-team
+docs/runbooks/            @printforge/devops-team
+docs/adr/                 @printforge/devops-team
+
+# Application services — respective service teams
+services/product-service/ @printforge/backend-team
+services/order-service/   @printforge/backend-team @printforge/devops-team
+services/marketplace-web/ @printforge/frontend-team
+services/artist-service/  @printforge/backend-team
+services/search-service/  @printforge/search-team
+services/monolith-service/ @printforge/legacy-team
+
+# Dockerfiles — DevOps review required
+**/Dockerfile             @printforge/devops-team

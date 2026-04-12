@@ -1,0 +1,213 @@
+# PrintForge SLO Definitions
+# Managed via Datadog Terraform provider (terraform/modules/datadog/slos.tf)
+# This YAML is the human-readable spec the Terraform module implements.
+#
+# Error budget formula:
+#   budget_remaining = 1 - (bad_events / total_events) / (1 - target)
+#   Example: 99.9% target over 30 days = 43.2 minutes of allowed downtime
+#
+# Reference: docs/adr/006-slo-based-alerting.md
+#            docs/sla/error-budget-policy.md
+
+slos:
+  # ─────────────────────────────────────────────
+  # SLO-001: Checkout Availability
+  # Hero SLO — owner: order-service
+  # ─────────────────────────────────────────────
+  - name: "PrintForge Checkout Availability"
+    id: checkout-availability
+    description: >
+      Measures the proportion of successful HTTP responses (non-5xx) from the
+      order-service checkout path. This is the headline reliability SLO —
+      every failed checkout is lost revenue and a frustrated customer.
+    type: metric
+    tags:
+      - service:order-service
+      - team:platform
+      - tier:critical
+      - env:production
+
+    sli:
+      numerator: >
+        sum:http_requests_total{
+          service:order-service,
+          !path:/healthz,
+          !path:/readyz,
+          !path:/metrics,
+          !status_code:5*
+        }.as_count()
+      denominator: >
+        sum:http_requests_total{
+          service:order-service,
+          !path:/healthz,
+          !path:/readyz,
+          !path:/metrics
+        }.as_count()
+      formula: "(numerator / denominator) * 100"
+
+    target:
+      value: 99.9
+      warning: 99.95
+      timeframe: 30d
+
+    error_budget:
+      total_minutes_30d: 43.2      # 30 days * 24h * 60m * 0.001
+      total_minutes_7d: 10.08
+      alert_burn_rate_1h: 14.4     # consuming 14.4x budget = page immediately
+      alert_burn_rate_6h: 6.0      # consuming 6x budget = ticket
+      alert_burn_rate_24h: 3.0     # consuming 3x budget = warning
+
+    monitors:
+      - api-error-rate
+      - error-budget-burn
+
+  # ─────────────────────────────────────────────
+  # SLO-002: Product Page Latency (P99)
+  # Owner: product-service
+  # ─────────────────────────────────────────────
+  - name: "PrintForge Product Page Latency"
+    id: product-latency-p99
+    description: >
+      99th percentile response time for product-service must remain under
+      300ms. Measured across catalog browse and product detail endpoints.
+      Slow product pages directly reduce browse-to-cart conversion.
+    type: metric
+    tags:
+      - service:product-service
+      - team:platform
+      - tier:critical
+      - env:production
+
+    sli:
+      numerator: >
+        sum:http_request_duration_seconds.count{
+          service:product-service,
+          !path:/healthz,
+          !path:/readyz,
+          !path:/metrics,
+          upper_bound:0.3
+        }.as_count()
+      denominator: >
+        sum:http_request_duration_seconds.count{
+          service:product-service,
+          !path:/healthz,
+          !path:/readyz,
+          !path:/metrics
+        }.as_count()
+      p99_query: >
+        p99:http_request_duration_seconds{
+          service:product-service,
+          !path:/healthz,
+          !path:/readyz
+        }
+      threshold_ms: 300
+      formula: "(requests_under_300ms / total_requests) * 100"
+
+    target:
+      value: 99.0
+      warning: 99.5
+      timeframe: 30d
+
+    error_budget:
+      total_minutes_30d: 432.0     # 30 * 24 * 60 * 0.01
+      alert_burn_rate_1h: 14.4
+      alert_burn_rate_6h: 6.0
+
+    monitors:
+      - api-latency-p99
+
+  # ─────────────────────────────────────────────
+  # SLO-003: Search Latency
+  # Owner: search-service
+  # ─────────────────────────────────────────────
+  - name: "PrintForge Search Latency"
+    id: search-latency
+    description: >
+      Search queries must return results within 200ms at P99. This covers
+      the search-service /search endpoint used by both the web frontend
+      and the product-service for autocomplete and catalog browsing.
+    type: metric
+    tags:
+      - service:search-service
+      - team:platform
+      - tier:high
+      - env:production
+
+    sli:
+      numerator: >
+        sum:http_request_duration_seconds.count{
+          service:search-service,
+          path:/search,
+          upper_bound:0.2
+        }.as_count()
+      denominator: >
+        sum:http_request_duration_seconds.count{
+          service:search-service,
+          path:/search
+        }.as_count()
+      p99_query: >
+        p99:http_request_duration_seconds{
+          service:search-service,
+          path:/search
+        }
+      threshold_ms: 200
+      formula: "(requests_under_200ms / total_requests) * 100"
+
+    target:
+      value: 95.0
+      warning: 97.0
+      timeframe: 30d
+
+    error_budget:
+      total_minutes_30d: 2160.0    # 30 * 24 * 60 * 0.05
+      alert_burn_rate_1h: 14.4
+      alert_burn_rate_6h: 6.0
+
+    monitors: []
+
+  # ─────────────────────────────────────────────
+  # SLO-004: Order Success Rate
+  # Business SLO — owner: order-service
+  # ─────────────────────────────────────────────
+  - name: "PrintForge Order Success Rate"
+    id: order-success-rate
+    description: >
+      Measures the ratio of successfully completed checkouts to total
+      checkout attempts. A checkout is "successful" when the order is
+      persisted and the payment confirmation returns within the timeout.
+      Client-side cancellations and user payment declines are excluded.
+    type: metric
+    tags:
+      - service:order-service
+      - team:platform
+      - tier:critical
+      - env:production
+      - business-critical:true
+
+    sli:
+      numerator: >
+        sum:checkout_attempts_total{
+          service:order-service,
+          status:success
+        }.as_count()
+      denominator: >
+        sum:checkout_attempts_total{
+          service:order-service,
+          !status:invalid
+        }.as_count()
+      formula: "(successful_checkouts / total_checkout_attempts) * 100"
+
+    target:
+      value: 99.95
+      warning: 99.97
+      timeframe: 30d
+
+    error_budget:
+      total_minutes_30d: 21.6     # 30 * 24 * 60 * 0.0005
+      total_minutes_7d: 5.04
+      alert_burn_rate_1h: 14.4
+      alert_burn_rate_6h: 6.0
+      alert_burn_rate_24h: 3.0
+
+    monitors:
+      - error-budget-burn

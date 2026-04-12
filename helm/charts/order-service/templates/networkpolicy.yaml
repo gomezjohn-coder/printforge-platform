@@ -1,0 +1,100 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "common.fullname" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from marketplace-web (user checkout)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: marketplace-web
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    # Allow traffic from ingress controller (direct API clients)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    # Allow Prometheus / Datadog agent to scrape metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+  egress:
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # product-service (cart validation during checkout)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: product-service
+      ports:
+        - protocol: TCP
+          port: 3001
+    # monolith-service (fulfilment handoff) — egress to ECS via internal NLB
+    # In production this target is restricted at the VPC SG level too.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+            except:
+              - 10.0.0.0/24
+      ports:
+        - protocol: TCP
+          port: 4000
+    # PostgreSQL (order persistence)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis (idempotency keys + session state)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Stripe API (HTTPS) — egress to the internet is intentionally narrow
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

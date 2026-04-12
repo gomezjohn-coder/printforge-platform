@@ -1,0 +1,16 @@
+{{/*
+order-service Deployment
+========================
+Owner of the 99.9% Checkout Availability SLO and < 500ms p99 latency SLO.
+Delegates to the common library chart which provides:
+  - Three probe types (startup, liveness, readiness)
+  - Resource requests AND limits
+  - topologySpreadConstraints across AZs
+  - podAntiAffinity for node-level spreading
+  - Full securityContext (non-root, readOnlyRootFilesystem, drop ALL caps)
+  - terminationGracePeriodSeconds with preStop lifecycle hook
+  - Init container: wait-for-product-service
+  - RollingUpdate strategy with maxUnavailable: 0 → zero-downtime deploys
+  - Config/secret checksum annotations → automatic rollout on config change
+*/}}
+{{ include "common.deployment" . }}

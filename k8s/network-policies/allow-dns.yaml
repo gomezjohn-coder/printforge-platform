@@ -1,0 +1,26 @@
+# Allow all pods to reach kube-dns for name resolution
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    policy-type: allow-dns
+spec:
+  podSelector: {}  # All pods need DNS
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

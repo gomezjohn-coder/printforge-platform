@@ -1,0 +1,13 @@
+apiVersion: v2
+name: artist-service
+description: PrintForge Artist Service - Go microservice handling artist profiles, portfolio management, and S3 asset uploads
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: PrintForge Platform Team
+    email: platform@printforge.io
+dependencies:
+  - name: common
+    version: "0.1.0"
+    repository: "file://../common"

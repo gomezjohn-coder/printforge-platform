@@ -1,0 +1,28 @@
+replicaCount: 2
+
+image:
+  repository: <your-account>.dkr.ecr.us-east-1.amazonaws.com/order-service
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+configmap:
+  DATABASE_URL: "postgresql://..."
+  SQS_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/..."

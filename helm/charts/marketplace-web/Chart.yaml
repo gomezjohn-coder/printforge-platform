@@ -1,0 +1,13 @@
+apiVersion: v2
+name: marketplace-web
+description: PrintForge Marketplace Web Frontend - Next.js SSR application serving the marketplace UI
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: PrintForge Platform Team
+    email: platform@printforge.io
+dependencies:
+  - name: common
+    version: "0.1.0"
+    repository: "file://../common"

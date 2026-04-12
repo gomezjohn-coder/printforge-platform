@@ -1,0 +1,56 @@
+# Deployer role — used by CI/CD service accounts (Buildkite)
+# Allows: create/update deployments, services, configmaps, HPA
+# Denies: exec, secret creation, RBAC modifications
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    rbac.printforge.io/level: deployer
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["flagger.app"]
+    resources: ["canaries"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-binding
+  namespace: printforge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deployer
+subjects:
+  - kind: ServiceAccount
+    name: buildkite-deployer
+    namespace: printforge
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildkite-deployer
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    rbac.printforge.io/level: deployer

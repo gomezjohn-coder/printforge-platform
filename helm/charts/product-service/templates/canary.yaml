@@ -1,0 +1,54 @@
+{{- if .Values.canary.enabled }}
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: {{ include "common.fullname" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "common.fullname" . }}
+  progressDeadlineSeconds: {{ .Values.canary.progressDeadlineSeconds | default 600 }}
+  service:
+    port: {{ .Values.service.port }}
+    targetPort: {{ .Values.containerPort }}
+    gateways:
+      - public-gateway.istio-system.svc.cluster.local
+  analysis:
+    # Canary analysis interval
+    interval: {{ .Values.canary.analysis.interval }}
+    # Max number of failed metric checks before rollback
+    threshold: {{ .Values.canary.analysis.threshold }}
+    # Percentage of traffic to shift per step
+    stepWeight: {{ .Values.canary.analysis.stepWeight }}
+    # Maximum percentage of traffic routed to canary
+    maxWeight: {{ .Values.canary.analysis.maxWeight }}
+    metrics:
+      # Request success rate must stay above threshold
+      - name: request-success-rate
+        thresholdRange:
+          min: {{ .Values.canary.metrics.requestSuccessRate }}
+        interval: {{ .Values.canary.analysis.interval }}
+      # P99 latency must remain below threshold (ms)
+      - name: request-duration
+        thresholdRange:
+          max: {{ .Values.canary.metrics.requestDurationP99 }}
+        interval: {{ .Values.canary.analysis.interval }}
+    webhooks:
+      # Load test webhook - generate synthetic traffic against canary
+      - name: load-test
+        type: rollout
+        url: {{ .Values.canary.webhooks.loadtest.url }}
+        timeout: 30s
+        metadata:
+          type: cmd
+          cmd: "hey -z 1m -q 10 -c 2 http://{{ include "common.fullname" . }}-canary.{{ .Release.Namespace }}:{{ .Values.service.port }}/"
+      {{- if .Values.canary.webhooks.slack.url }}
+      # Slack notification webhook
+      - name: slack-notification
+        type: event
+        url: {{ .Values.canary.webhooks.slack.url }}
+      {{- end }}
+{{- end }}

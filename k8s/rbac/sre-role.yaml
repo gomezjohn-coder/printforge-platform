@@ -1,0 +1,49 @@
+# SRE role — full access for incident response and debugging
+# Allows: exec, port-forward, secret read, all resource management
+# Used by: on-call DevOps/SRE team members
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sre
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    rbac.printforge.io/level: sre
+rules:
+  - apiGroups: [""]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["autoscaling"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["batch"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["policy"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["flagger.app"]
+    resources: ["*"]
+    verbs: ["*"]
+  # Note: RBAC modification is NOT allowed at role level
+  # Cluster-admin escalation requires separate approval
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-binding
+  namespace: printforge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sre
+subjects:
+  - kind: Group
+    name: printforge-sre
+    apiGroup: rbac.authorization.k8s.io

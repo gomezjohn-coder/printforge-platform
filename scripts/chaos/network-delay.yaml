@@ -1,0 +1,140 @@
+# PrintForge — Chaos Mesh: Network Delay Experiment
+#
+# Injects 200ms of latency between services in the printforge namespace
+# to validate:
+#   - Timeout configurations are appropriate
+#   - Circuit breaker behavior under latency
+#   - SLO compliance with degraded network conditions
+#   - Retry logic does not cause cascading failures
+#   - User experience degrades gracefully
+#
+# This simulates real-world conditions like:
+#   - Cross-AZ network latency
+#   - Cloud provider network degradation
+#   - Congested network links
+#
+# Prerequisites:
+#   - Chaos Mesh installed with network chaos support
+#   - kubectl access to the printforge namespace
+#
+# Usage:
+#   kubectl apply -f scripts/chaos/network-delay.yaml
+#   kubectl get networkchaos -n printforge
+#   kubectl delete -f scripts/chaos/network-delay.yaml  # stop experiment
+#
+# Monitoring during experiment:
+#   - Watch P99 latency dashboard
+#   - Monitor error rate (should stay below SLO threshold)
+#   - Check for timeout errors in logs
+
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: printforge-network-delay
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: network-delay
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Inject 200ms latency (+/- 50ms jitter) on all inter-service traffic
+      within the printforge namespace. Validates timeout handling and SLO
+      compliance under degraded network conditions.
+spec:
+  action: delay
+  mode: all
+  # Target: all application pods
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app.kubernetes.io/part-of": "printforge"
+  # Delay configuration
+  delay:
+    latency: "200ms"
+    correlation: "75"
+    jitter: "50ms"
+  # Direction: apply delay on egress (outgoing traffic from pods)
+  direction: to
+  # Target specific service-to-service communication
+  target:
+    selector:
+      namespaces:
+        - printforge
+    mode: all
+  # Duration: run for 10 minutes
+  duration: "10m"
+---
+# Targeted delay: order-service to database traffic
+# Tests database timeout and connection pool behavior
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: printforge-db-latency
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: db-latency
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Inject 200ms latency specifically on order-service to PostgreSQL
+      traffic. Tests connection pool timeout handling and query timeout
+      configurations.
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app": "order-service"
+  delay:
+    latency: "200ms"
+    correlation: "80"
+    jitter: "30ms"
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - printforge
+      labelSelectors:
+        "app": "postgres"
+    mode: all
+  duration: "10m"
+---
+# Targeted delay: order-service to search-service
+# Tests search timeout handling and fallback behavior
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: printforge-search-latency
+  namespace: printforge
+  labels:
+    app.kubernetes.io/part-of: printforge
+    chaos-mesh.org/experiment: search-latency
+  annotations:
+    experiment.chaos-mesh.org/description: >
+      Inject 200ms latency on order-service to search-service traffic.
+      Validates that search timeouts are handled gracefully and the API
+      returns partial results or appropriate error responses.
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - printforge
+    labelSelectors:
+      "app": "order-service"
+  delay:
+    latency: "200ms"
+    correlation: "80"
+    jitter: "40ms"
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - printforge
+      labelSelectors:
+        "app": "search-service"
+    mode: all
+  duration: "10m"

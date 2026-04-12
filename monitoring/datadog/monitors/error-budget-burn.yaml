@@ -1,0 +1,124 @@
+# PrintForge Monitor: Error Budget Burn Rate
+# Priority: P2 (ticket + notification)
+# SLO: SLO-001 API Availability, SLO-004 Order Success Rate
+#
+# Multi-window burn rate alert based on Google SRE methodology.
+# Uses two windows to reduce false positives:
+#   - Fast burn (1h window): catches acute incidents
+#   - Slow burn (6h window): catches gradual degradation
+#
+# A burn rate of 2x means the error budget will be exhausted in half
+# the SLO window (15 days instead of 30 days).
+#
+# Reference: Google SRE Workbook, Chapter 5 - Alerting on SLOs
+
+name: "[P2] PrintForge — Error Budget Burn Rate > 2x"
+type: query alert
+priority: 2
+
+# Fast window: 1-hour burn rate
+query: >
+  sum(last_1h):(
+    sum:http_requests_total{
+      service:order-service,
+      status_code:5*
+    }.as_count()
+    /
+    sum:http_requests_total{
+      service:order-service
+    }.as_count()
+  ) / (1 - 0.999) > 2
+
+# The monitor should also check the slow window (6h) to confirm.
+# In Datadog, this is implemented as a composite monitor:
+composite_conditions:
+  operator: "&&"
+  monitors:
+    - name: "error-budget-burn-fast-1h"
+      query: >
+        sum(last_1h):(
+          sum:http_requests_total{service:order-service,status_code:5*}.as_count()
+          / sum:http_requests_total{service:order-service}.as_count()
+        ) / 0.001 > 2
+    - name: "error-budget-burn-slow-6h"
+      query: >
+        sum(last_6h):(
+          sum:http_requests_total{service:order-service,status_code:5*}.as_count()
+          / sum:http_requests_total{service:order-service}.as_count()
+        ) / 0.001 > 1
+
+message: |
+  {{#is_alert}}
+  **P2 ALERT: Error budget burn rate is {{value}}x (threshold: 2x)**
+
+  The API availability SLO error budget is being consumed faster than
+  sustainable. At the current burn rate, the 30-day error budget will be
+  exhausted in approximately {{#eval}} 30 / {{value}} {{/eval}} days.
+
+  **Error Budget Status:**
+  - SLO Target: 99.9% availability
+  - Monthly budget: 43.2 minutes of downtime
+  - Current burn rate: {{value}}x normal
+  - Estimated exhaustion: {{#eval}} 30 / {{value}} {{/eval}} days
+
+  **What this means:**
+  A burn rate > 2x indicates the system is accumulating errors at a pace
+  that will breach the SLO before the end of the window. This could be
+  caused by intermittent failures, elevated error rates from a specific
+  endpoint, or a partial outage in a dependency.
+
+  **Investigation steps:**
+  1. Check which endpoints are contributing errors:
+     ```
+     # Group errors by path
+     printforge logs order-service --level error --since 1h | sort | uniq -c | sort -rn
+     ```
+  2. Review the SLO dashboard for the specific SLI breakdown
+  3. Check if a canary deployment is in progress
+  4. Review downstream service health (PostgreSQL, Redis, artist-service)
+
+  **Mitigation options:**
+  - If a deployment is responsible: `printforge rollback order-service`
+  - If a dependency is failing: check the dependency's health and failover
+  - Consider implementing a feature flag to disable the affected path
+  - If the budget is nearly exhausted: freeze non-critical deployments
+
+  **Runbook:** https://runbooks.printforge.io/slo/error-budget-burn
+  **SLO Dashboard:** https://app.datadoghq.com/slo
+  {{/is_alert}}
+
+  {{#is_warning}}
+  **Warning: Error budget burn rate is {{value}}x (warning threshold: 1.5x)**
+
+  Budget is being consumed faster than normal but not yet at critical levels.
+  Monitor the trend and investigate if it continues.
+  {{/is_warning}}
+
+  {{#is_recovery}}
+  **Recovered: Error budget burn rate has returned to {{value}}x (sustainable)**
+  {{/is_recovery}}
+
+  @slack-printforge-alerts
+
+tags:
+  - service:order-service
+  - team:platform
+  - env:production
+  - slo:checkout-availability
+  - severity:p2
+
+options:
+  thresholds:
+    critical: 2
+    warning: 1.5
+  notify_no_data: false
+  require_full_window: true
+  include_tags: true
+  evaluation_delay: 120
+
+  renotify_interval: 60
+  renotify_occurrences: 3
+  renotify_statuses:
+    - alert
+
+  min_failure_duration: 300
