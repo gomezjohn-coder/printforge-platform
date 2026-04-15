@@ -1,11 +1,14 @@
 # =============================================================================
-# Staging Environment
+# Staging Environment — EKS Deployment
 # =============================================================================
 # Usage: helm upgrade --install <chart> ./helm/charts/<chart> \
-#          -f ./helm/environments/staging/values.yaml
+#          -n printforge \
+#          -f ./helm/environments/staging/values.yaml \
+#          --set image.repository=646294700619.dkr.ecr.ap-southeast-2.amazonaws.com/rawcanvas/<chart> \
+#          --set image.tag=v1
 # =============================================================================
 
-replicaCount: 2
+replicaCount: 1
 
 image:
   pullPolicy: Always
@@ -19,42 +22,16 @@ resources:
     cpu: "250m"
 
 autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 4
-  targetCPUUtilizationPercentage: 75
-  targetMemoryUtilizationPercentage: 85
-  behavior:
-    scaleUp:
-      stabilizationWindowSeconds: 60
-      maxPods: 1
-      maxPercent: 50
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      maxPods: 1
+  enabled: false
 
 podDisruptionBudget:
-  enabled: true
-  minAvailable: 1
+  enabled: false
 
 networkPolicy:
-  enabled: true
+  enabled: false
 
 ingress:
-  enabled: true
-  className: nginx
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-staging
-  hosts:
-    - host: staging.printforge.io
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: printforge-staging-tls
-      hosts:
-        - staging.printforge.io
+  enabled: false
 
 env:
   - name: NODE_ENV
@@ -63,14 +40,20 @@ env:
     value: debug
   - name: LOG_FORMAT
     value: json
+  - name: DATABASE_URL
+    value: postgres://printforge:printforge_dev@postgres:5432/printforge
+  - name: REDIS_URL
+    value: redis://redis:6379
+  - name: PRODUCT_SERVICE_URL
+    value: http://product-service:3001
+  - name: ORDER_SERVICE_URL
+    value: http://order-service:3003
+  - name: SEARCH_SERVICE_URL
+    value: http://search-service:3002
+  - name: ARTIST_SERVICE_URL
+    value: http://artist-service:8080
 
-# -- Canary enabled in staging for testing progressive delivery
 canary:
-  enabled: true
-  analysis:
-    interval: 1m
-    threshold: 3
-    stepWeight: 20
-    maxWeight: 60
+  enabled: false
 
-terminationGracePeriodSeconds: 30
+terminationGracePeriodSeconds: 15

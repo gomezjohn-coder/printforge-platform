@@ -6,15 +6,18 @@ terraform {
   required_version = ">= 1.5"
 
   backend "s3" {
-    bucket         = "printforge-terraform-state"
+    bucket         = "rawcanvas-terraform-state"
     key            = "staging/terraform.tfstate"
     region         = "ap-southeast-2"
-    dynamodb_table = "printforge-terraform-locks"
+    dynamodb_table = "rawcanvas-terraform-locks"
     encrypt        = true
   }
 
   required_providers {
-    aws = { source = "hashicorp/aws"; version = "~> 5.0" }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
   }
 }
 
@@ -55,7 +58,7 @@ module "eks" {
   project_name           = local.project_name
   environment            = local.environment
   cluster_name           = local.cluster_name
-  cluster_version        = "1.29"
+  cluster_version        = "1.30"
   vpc_id                 = module.vpc.vpc_id
   vpc_cidr               = module.vpc.vpc_cidr
   private_subnet_ids     = module.vpc.private_subnet_ids
@@ -69,7 +72,7 @@ module "eks" {
 
   spot_desired_size = 0
   spot_min_size     = 0
-  spot_max_size     = 0
+  spot_max_size     = 1
 
   tags = local.tags
 }

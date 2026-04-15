@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  repository: <your-account>.dkr.ecr.us-east-1.amazonaws.com/order-service
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/order-service
   tag: latest
   pullPolicy: Always
 

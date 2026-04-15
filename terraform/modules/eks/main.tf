@@ -255,7 +255,7 @@ resource "aws_iam_role" "ebs_csi" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Federated = aws_eks_cluster.main.identity[0].oidc[0].issuer
+        Federated = aws_iam_openid_connect_provider.eks.arn
       }
       Action = "sts:AssumeRoleWithWebIdentity"
     }]

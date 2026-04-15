@@ -187,8 +187,9 @@ services:
     environment:
       NODE_ENV: development
       PORT: "3000"
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXT_PUBLIC_ORDER_URL: http://localhost:3003
+      NEXT_PUBLIC_API_URL: http://product-service:3001
+      API_INTERNAL_URL: http://product-service:3001
+      ORDER_SERVICE_URL: http://order-service:3003
     ports:
       - "3000:3000"
     volumes:

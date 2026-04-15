@@ -7,9 +7,10 @@ on:
     branches: [dev, main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [artist-service, product-service, order-service, monolith-service]
     steps:
@@ -20,30 +21,54 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Login to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, test & push
+      - name: Install dependencies
         working-directory: services/${{ matrix.service }}
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          pip install -r requirements.txt
-          pytest tests/ -v
-          docker build -t $ECR_REGISTRY/${{ matrix.service }}:${{ github.sha }} .
-          docker push $ECR_REGISTRY/${{ matrix.service }}:${{ github.sha }}
+        run: pip install -r requirements.txt
 
-      - name: Trigger Buildkite
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
-        run: |
-          curl -X POST https://api.buildkite.com/v2/organizations/${{ secrets.BK_ORG }}/pipelines/deploy/builds \
-            -H "Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}" \
-            -d '{"commit":"${{ github.sha }}","branch":"${{ github.ref_name }}"}'
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        run: pytest tests/ -v
+
+      - name: Build Docker image
+        working-directory: services/${{ matrix.service }}
+        run: docker build -t ${{ matrix.service }}:${{ github.sha }} .
+
+  # ------------------------------------------------------------------
+  # The steps below require AWS credentials and Buildkite tokens.
+  # Uncomment when secrets are configured in GitHub repo settings:
+  #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BK_ORG, BUILDKITE_TOKEN
+  # ------------------------------------------------------------------
+  # push-to-ecr:
+  #   needs: test
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       service: [artist-service, product-service, order-service, monolith-service]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - name: Configure AWS credentials
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         aws-region: us-east-1
+  #
+  #     - name: Login to ECR
+  #       id: login-ecr
+  #       uses: aws-actions/amazon-ecr-login@v2
+  #
+  #     - name: Push to ECR
+  #       working-directory: services/${{ matrix.service }}
+  #       env:
+  #         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+  #       run: |
+  #         docker build -t $ECR_REGISTRY/${{ matrix.service }}:${{ github.sha }} .
+  #         docker push $ECR_REGISTRY/${{ matrix.service }}:${{ github.sha }}
+  #
+  #     - name: Trigger Buildkite
+  #       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+  #       run: |
+  #         curl -X POST https://api.buildkite.com/v2/organizations/${{ secrets.BK_ORG }}/pipelines/deploy/builds \
+  #           -H "Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}" \
+  #           -d '{"commit":"${{ github.sha }}","branch":"${{ github.ref_name }}"}'

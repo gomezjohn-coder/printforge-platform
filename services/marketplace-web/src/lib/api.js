@@ -1,12 +1,22 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+// Browser: relative URL goes through Next.js rewrite proxy
+// Server (SSR/Docker): use internal Docker service name
+const API_BASE = typeof window === 'undefined'
+  ? (process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || 'http://product-service:3001')
+  : '';
 
 async function fetchAPI(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  const res = await fetch(url, {
+  const fetchOptions = {
     headers: { 'Content-Type': 'application/json', ...options.headers },
-    next: { revalidate: 60 },
     ...options,
-  });
+  };
+
+  // Only add revalidate for server-side fetches
+  if (typeof window === 'undefined') {
+    fetchOptions.next = { revalidate: 60 };
+  }
+
+  const res = await fetch(url, fetchOptions);
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: { message: res.statusText } }));

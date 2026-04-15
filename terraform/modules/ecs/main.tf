@@ -101,14 +101,12 @@ resource "aws_ecs_service" "monolith" {
   launch_type     = "FARGATE"
 
   # Deployment with circuit breaker — auto-rollback on failure
-  deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+  deployment_minimum_healthy_percent = 100
 
-    deployment_circuit_breaker {
-      enable   = true
-      rollback = true
-    }
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
   }
 
   network_configuration {

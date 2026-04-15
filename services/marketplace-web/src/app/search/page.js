@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ProductCard from '@/components/ProductCard';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+// Use relative URL so requests go through Next.js rewrite proxy
+const API_BASE = '';
 
 const PRODUCT_TYPES = [
   { label: 'All Types', value: '' },

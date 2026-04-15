@@ -4,14 +4,14 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import ProductCard from '@/components/ProductCard';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = '';
 
 const BANNER_GRADIENTS = [
   'from-brand-500 to-blue-600',
-  'from-accent-500 to-pink-600',
   'from-emerald-500 to-teal-600',
   'from-violet-500 to-purple-600',
   'from-orange-400 to-red-500',
+  'from-pink-500 to-rose-600',
 ];
 
 function getBannerGradient(name) {
@@ -96,7 +96,7 @@ export default function ArtistPage({ params }) {
               </p>
             )}
             <p className="text-surface-600 mt-2 max-w-xl">
-              {artist.bio || 'Independent artist on PrintForge.'}
+              {artist.bio || 'Independent artist on RawCanvas.'}
             </p>
             <div className="flex items-center gap-6 mt-3 text-sm text-surface-400">
               <span><strong className="text-surface-700">{artist.totalSales?.toLocaleString() || 0}</strong> sales</span>

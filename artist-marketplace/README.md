@@ -1,5 +1,7 @@
 # Artist Marketplace Platform
 
+**Author:** John Gomez
+
 Portfolio DevOps build: global, multi-region artist marketplace demonstrating
 EKS + ECS, Terraform, Helm, GitHub Actions + Buildkite CI/CD, SLOs, and k6
 load testing.
